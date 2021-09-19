@@ -245,16 +245,15 @@ install:
 
 server-install:
 	mkdir -p "$(SERVERDIR)"
-	#cp btctl "$(SERVERDIR)/"
-	#-"$(SERVERDIR)/btctl" stop
+	-cp btctl "$(SERVERDIR)/"
+	-"$(SERVERDIR)/btctl" stop
 	cp "$(EXE)" "$(SERVERDIR)/$(EXE)-$(VERSION)"
-	cd "$(SERVERDIR)" && ln -sf "$(EXE)-$(VERSION)" "$(EXE)"
-	-rsync -ax --exclude=".*" Mechs "$(SERVERDIR)/"
 	-rsync -ax --exclude=".*" *.DAT "$(SERVERDIR)/"
 	-chown -R $(SERVERUSER):wheel "$(SERVERDIR)"
 	-chmod 775 "$(SERVERDIR)/$(EXE)-$(VERSION)"
-	#-ln -sf "$(SERVERDIR)/btctl" /usr/local/bin/btctl
-	#-"$(SERVERDIR)/btctl" start
+	-ln -sf "$(SERVERDIR)/btctl" /usr/local/bin/btctl
+	cd "$(SERVERDIR)" && ln -sf "$(EXE)-$(VERSION)" "$(EXE)"
+	-"$(SERVERDIR)/btctl" start
 
 ppc:
 	make objects ARCH="$(MAC_PPC_ARCH)" MCPU="$(MAC_PPC_MCPU)" MTUNE="$(MAC_PPC_MTUNE)"

@@ -69,9 +69,6 @@ void Event::ShowFacing( uint8_t facing, bool prone, int8_t twist, int8_t turned_
 	if( prone )
 	{
 		Misc |= 0x08;
-		/*
-		Misc |= (prone_fire & 0x0F) << 4;
-		*/
 		if( prone_fire == BattleTech::Loc::LEFT_ARM )
 			Misc |= 0x10;
 		else if( prone_fire == BattleTech::Loc::RIGHT_ARM )
@@ -81,15 +78,9 @@ void Event::ShowFacing( uint8_t facing, bool prone, int8_t twist, int8_t turned_
 	}
 	else
 	{
-		/*
-		// This encoding allowed increased torso twist, but couldn't fit turned arms.
-		Misc |= (twist & 0x07) << 4;
-		if( arm_flip )
-			Misc |= 0x80;
-		*/
-		if( twist == 1 )
+		if( twist >= 1 )
 			Misc |= 0x10;
-		else if( twist == -1 )
+		else if( twist <= -1 )
 			Misc |= 0x20;
 		else if( arm_flip )
 			Misc |= 0x30;
@@ -109,11 +100,6 @@ void Event::ReadFacing( Mech *mech ) const
 	{
 		mech->ArmsFlipped = false;
 		mech->TorsoTwist = 0;
-		/*
-		mech->ProneFire = (Misc & 0xF0) >> 4;
-		if( mech->ProneFire >= BattleTech::Loc::COUNT )
-			mech->ProneFire = BattleTech::Loc::UNKNOWN;
-		*/
 		uint8_t prone_fire = Misc & 0x30;
 		if( prone_fire == 0x30 )
 			mech->ProneFire = BattleTech::Loc::CENTER_TORSO;
@@ -127,13 +113,6 @@ void Event::ReadFacing( Mech *mech ) const
 	else
 	{
 		mech->ProneFire = BattleTech::Loc::UNKNOWN;
-		/*
-		// This encoding allowed increased torso twist, but couldn't fit turned arms.
-		mech->ArmsFlipped =  Misc & 0x80;
-		mech->TorsoTwist  = (Misc & 0x70) >> 4;
-		if( mech->TorsoTwist & 0x04 )
-			mech->TorsoTwist |= 0xF8;
-		*/
 		uint8_t twist_flip = Misc & 0x30;
 		if( twist_flip == 0x10 )
 			mech->TorsoTwist = 1;

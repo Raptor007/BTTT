@@ -231,7 +231,10 @@ std::map< short, HMWeapon > HeavyMetal::Weapons( const char *filename )
 		*/
 		
 		if( w.Type == HMWeapon::ULTRA_AC )
+		{
 			w.RapidFire = strstr( name_str, "Rotary" ) ? 6 : 2;
+			w.ClusterDamageGroup = w.Damage;
+		}
 		else
 			w.RapidFire = 1;
 		
@@ -367,7 +370,6 @@ std::string HeavyMetal::CritName( short wid, const std::map< short, HMWeapon > *
 		{
 			std::map< short, HMWeapon >::const_iterator witer = weapons->find( wid - 400 );
 			std::string name = (witer != weapons->end()) ? witer->second.AmmoName : "Ammo";
-			//name += std::string(" ") + Num::ToString( ptr[ 2 ] );
 			return name;
 		}
 		
@@ -375,8 +377,6 @@ std::string HeavyMetal::CritName( short wid, const std::map< short, HMWeapon > *
 		if( witer != weapons->end() )
 		{
 			std::string name = witer->second.Name;
-			//if( ptr[ 2 ] == 0x01 )
-			//	name += " (Rear)";
 			return name;
 		}
 	}

@@ -80,6 +80,7 @@ bool HexTouch::operator < ( const HexTouch &other ) const
 ShotPath::ShotPath( void ) : std::vector<const Hex*>()
 {
 	Modifier = 0;
+	Distance = 0;
 	LineOfSight = true;
 	PartialCover = false;
 	LegWeaponsBlocked = false;
@@ -145,7 +146,6 @@ void HexMap::Randomize( uint32_t seed )
 	double hill1 = r.Double( 0.02, 0.10 );
 	double hill2 = r.Double( 0.55, 0.60 ) - hill1;
 	double hill3 = r.Double( 0.40, 0.80 );
-	//double pits = r.Double( 0.00, 0.20 );
 	
 	// Randomize the hexes on the map.
 	for( std::vector< std::vector<Hex> >::iterator col = Hexes.begin(); col != Hexes.end(); col ++ )
@@ -172,7 +172,6 @@ void HexMap::Randomize( uint32_t seed )
 			
 			if( r.Bool(hill1) )
 			{
-				//hex->Height += r.Bool(pits) ? -3 : 0;
 				hex->Height += (r.Bool(hill2) ? 2 : 1);
 				
 				std::map<uint8_t,Hex*> adjacent = Adjacent( hex->X, hex->Y );
@@ -512,6 +511,8 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 		path.LineOfSight = false;
 		return path;
 	}
+	
+	path.Distance = HexDist( x1, y1, x2, y2 );
 	
 	// Always include the start hex in the path.
 	const Hex *here = &(Hexes[ x1 ][ y1 ]);
@@ -864,6 +865,7 @@ void HexMap::Draw( void )
 		{ 0.4f,0.4f,0.4f,0.9f },
 		{ 1.0f,1.0f,1.0f,0.9f }
 	};
+	GLuint texture = Raptor::Game->Res.GetTexture("hex.png");
 	
 	for( std::vector< std::vector<Hex> >::const_iterator col = Hexes.begin(); col != Hexes.end(); col ++ )
 	{
@@ -872,18 +874,39 @@ void HexMap::Draw( void )
 			Pos3D pos = Center( hex->X, hex->Y );
 			std::map<uint8_t,const Hex*> adjacent = Adjacent_const( hex->X, hex->Y );
 			
-			// Low ground color is light green.  Other elevations are more brownish.
-			Color c( 0.6f, 0.8f, 0.5f, 1.f );
-			if( hex->Height >= 1 )
-				c.Red *= powf( 1.15f, hex->Height );
-			else if( hex->Height < 0 )
+			// Default ground color is light green.
+			Color c( 0.65f, 0.85f, 0.45f, 1.f );
+			if( hex->Height < 0 )
 			{
-				c.Green *= powf( 1.1f, hex->Height );
-				c.Blue *= powf( 1.1f, hex->Height );
+				// Pits are brown.
+				c.Red   = 0.7f * powf( 1.05f, hex->Height );
+				c.Green = 0.7f * powf( 1.15f, hex->Height );
+				c.Blue  = 0.4f * powf( 1.15f, hex->Height );
+			}
+			else if( hex->Height <= 2 )
+			{
+				// Low hills are dark green.
+				c.Red   = 0.65f * powf( 0.8f, hex->Height );
+				c.Green = 0.85f * powf( 0.9f, hex->Height );
+				c.Blue  = 0.45f * powf( 0.8f, hex->Height );
+			}
+			else if( hex->Height == 3 )
+			{
+				// High hills are tan.
+				c.Red   = 0.8f;
+				c.Green = 0.75f;
+				c.Blue  = 0.6f;
+			}
+			else
+			{
+				// Mountains are grey/white.
+				c.Red   = 0.8f  * powf( 1.1f,  hex->Height - 4 );
+				c.Green = 0.78f * powf( 1.15f, hex->Height - 4 );
+				c.Blue  = 0.75f * powf( 1.25f, hex->Height - 4 );
 			}
 			
 			// Draw the hex color.
-			Raptor::Game->Gfx.DrawCircle2D( pos.X, pos.Y, 0.575, 6, 0, c.Red,c.Green,c.Blue,1.0f );
+			Raptor::Game->Gfx.DrawCircle2D( pos.X, pos.Y, 0.575, 6, texture, c.Red,c.Green,c.Blue,1.0f );
 			
 			// Draw 3D effect along edges that are taller than neighboring hexes.
 			for( std::map<uint8_t,const Hex*>::const_iterator adj = adjacent.begin(); adj != adjacent.end(); adj ++ )
@@ -919,30 +942,30 @@ void HexMap::Draw( void )
 					Randomizer rand( hex->X + 100 * hex->Y );
 					double x = pos.X + rand.Double( -0.3, -0.2 );
 					double y = pos.Y + rand.Double( -0.1,  0.1 );
-					Raptor::Game->Gfx.DrawRect2D( x - 0.2, y - 0.4, x + 0.2, y + 0.4, tree, r,g,b,1.f );
+					Raptor::Game->Gfx.DrawRect2D( x - 0.22, y - 0.44, x + 0.22, y + 0.44, tree, r,g,b,1.f );
 					x = pos.X + rand.Double(  0.2, 0.3 );
 					y = pos.Y + rand.Double( -0.1, 0.1 );
-					Raptor::Game->Gfx.DrawRect2D( x - 0.2, y - 0.4, x + 0.2, y + 0.4, tree, r,g,b,1.f );
+					Raptor::Game->Gfx.DrawRect2D( x - 0.22, y - 0.44, x + 0.22, y + 0.44, tree, r,g,b,1.f );
 					x = pos.X + rand.Double( -0.1, 0.1 );
 					y = pos.Y + rand.Double( -0.2, 0.2 );
-					Raptor::Game->Gfx.DrawRect2D( x - 0.2, y - 0.4, x + 0.2, y + 0.4, tree, r,g,b,1.f );
+					Raptor::Game->Gfx.DrawRect2D( x - 0.22, y - 0.44, x + 0.22, y + 0.44, tree, r,g,b,1.f );
 				}
 				else
 					Raptor::Game->Gfx.DrawCircle2D( pos.X, pos.Y, 0.4, 6, 0, r,g,b,1.f );
 			}
 			else if( hex->Forest )
 			{
-				float r = 0.1f, g = 0.7f, b = 0.1f;
+				float r = 0.2f, g = 0.7f, b = 0.1f;
 				GLuint tree = Raptor::Game->Res.GetTexture("tree.png");
 				if( tree )
 				{
 					Randomizer rand( hex->X + 100 * hex->Y );
 					double x = pos.X + rand.Double( -0.2, -0.1 );
 					double y = pos.Y + rand.Double( -0.1,  0.1 );
-					Raptor::Game->Gfx.DrawRect2D( x - 0.2, y - 0.4, x + 0.2, y + 0.4, tree, r,g,b,1.f );
+					Raptor::Game->Gfx.DrawRect2D( x - 0.22, y - 0.44, x + 0.22, y + 0.44, tree, r,g,b,1.f );
 					x = pos.X + rand.Double(  0.1, 0.2 );
 					y = pos.Y + rand.Double( -0.1, 0.1 );
-					Raptor::Game->Gfx.DrawRect2D( x - 0.2, y - 0.4, x + 0.2, y + 0.4, tree, r,g,b,1.f );
+					Raptor::Game->Gfx.DrawRect2D( x - 0.22, y - 0.44, x + 0.22, y + 0.44, tree, r,g,b,1.f );
 				}
 				else
 					Raptor::Game->Gfx.DrawCircle2D( pos.X, pos.Y, 0.4, 6, 0, r,g,b,1.f );

@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|             0.9 Beta (2021-09-01)             |
+|            0.9.1 Beta (2021-09-19)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -41,7 +41,8 @@ Getting Started:
 * Right-click on the map to spawn your selected Mech.  You can turn and move with the
   arrow keys during this Setup phase, and press Enter to commit a new starting position.
 * If you want to remove your Mech, press Del or Shift-Backspace to eject.
-* When everyone is ready, the host should press Esc and click Initiate Combat.
+* If playing Hotseat, press Tab to change teams and spawn the other Mech(s).
+* When everyone is ready, the host should press Enter or Esc and click Initiate Combat.
 
 Gameplay Controls:
 * Left-click selects a Mech.
@@ -73,6 +74,8 @@ Known Issues:
 * Reactive/Reflective/Hardened Armor are not implemented.
 * Stealth Armor System cannot be turned off (but does disable when ECM is damaged).
 * Streak passing through any Angel ECM (not just target's) should roll on cluster table.
+* Bloodhound Active Probe should be immune to ECM, unless it is Angel ECM.
+* Active Probe bonus through trees should be an optional rule. [BattleMech Manual p.110]
 * Anti-Missile System firing arc should probably rotate with torso twist.
 * Caseless AC rolling 2 should jam and crit itself; instead it explodes.
 * Hyper-velocity AC rolling 2 should destroy all of its crit slots.
@@ -95,3 +98,19 @@ Troubleshooting:
 * Mac will not allow a downloaded or unsigned application to run.
  - Use the Terminal to enable "allow apps downloaded from anywhere":
     sudo spctl --master-disable
+* When starting the game, "Loading Mechs" is sometimes very slow.
+ - Move BTTT to an SSD or remove some files from the Mechs folder.
+
+Version 0.9.1 Beta (2021-09-19):
+* Chat appears on screen, and you can press T to type a message.
+* Improved map graphics to look like alpine/grasslands, and other minor visual tweaks.
+* Fixed UAC/RAC rapid fire so it no longer combines all hits into one damage location.
+* Fixed automatic fall not being triggered after rolling 12 on leg critical hit check.
+* Fixed missing critical hit check when physical attack hits location 2 on prone target.
+* Fixed incorrect placement of weapons when the same type is mounted front and rear.
+* Cleanup and clarification of several damage resolution events.
+* Like physical attack, TAG is automatically skipped when there are no valid targets.
+* Spotting for indirect fire is announced when declared, not while resolving attacks.
+* Remote players can change game options on a dedicated server.
+Version 0.9 Beta (2021-09-01):
+* First release.

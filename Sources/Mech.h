@@ -17,6 +17,8 @@ class MechMelee;
 #include "Variant.h"
 #include "HeavyMetal.h"
 #include "Animation.h"
+#include "HexMap.h"
+#include "RaptorGame.h"
 
 
 class MechStep
@@ -118,7 +120,8 @@ public:
 	uint8_t Table, Arc, Roll;
 	bool Crit;
 	
-	std::string String( const char *verb = "hits" );
+	std::string String( const char *verb = "hits" ) const;
+	void Damage( uint16_t damage ) const;
 };
 
 
@@ -163,7 +166,8 @@ public:
 	int8_t Spotted;
 	bool Tagged;
 	uint16_t PhaseDamage;
-	uint8_t PSRs, PSRModifier;
+	std::queue<std::string> PSRs;
+	uint8_t PSRModifier;
 	std::string AutoFall;
 	
 	Mech( uint32_t id = 0 );
@@ -200,9 +204,9 @@ public:
 	MechLocation *PunchLocation( uint8_t arc = BattleTech::Arc::FRONT, uint8_t roll = 0 );
 	
 	void EngineExplode( void );
-	bool PilotSkillCheck( int8_t modifier = 0, bool fall = true );
+	bool PilotSkillCheck( std::string reason = "to avoid fall", int8_t modifier = 0, bool fall = true );
 	void Fall( int8_t psr_modifier = 0 );
-	void HitPilot( uint8_t hits = 1 );
+	void HitPilot( std::string reason = "", uint8_t hits = 1 );
 	bool ConsciousnessRoll( bool wake = false );
 	
 	bool Destroyed( void ) const;
@@ -212,12 +216,16 @@ public:
 	bool CanStand( void ) const;
 	bool Ready( void ) const;
 	bool ReadyAndAble( int phase = 0 ) const;
+	bool ReadyAndAbleNoCache( int phase ) const;
+	
+	int8_t WeaponRollNeeded( const Mech *target, const ShotPath *path = NULL, const MechEquipment *eq = NULL ) const;
+	bool SpottingWithoutTAG( void ) const;
 	
 	std::set<MechMelee> PhysicalAttacks( const Mech *target, int8_t modifier = 0 ) const;
 	uint8_t PhysicalHitTable( uint8_t attack, const Mech *attacker = NULL ) const;
 	
 	MechEquipment *FindAmmo( uint16_t eq_id = 0 );
-	uint16_t TotalAmmo( uint16_t eq_id );
+	uint16_t TotalAmmo( uint16_t eq_id ) const;
 	bool SpendAmmo( uint16_t eq_id );
 	
 	uint8_t ActiveProbeRange( void ) const;

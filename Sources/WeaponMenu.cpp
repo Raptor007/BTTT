@@ -115,6 +115,7 @@ void WeaponMenu::UpdateWeapons( void )
 	
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	HexBoard *hex_board = (HexBoard*) Container;
+	Mech *target = game->TargetMech();
 	
 	rect.h = ItemFont->GetHeight();
 	rect.w = rect.h;
@@ -157,6 +158,8 @@ void WeaponMenu::UpdateWeapons( void )
 		std::map<uint8_t,int8_t>::const_iterator difficulty = hex_board->WeaponsInRange.find( weap->first );
 		if( difficulty != hex_board->WeaponsInRange.end() )
 			needed_roll = difficulty->second;
+		else if( eq->Weapon->TAG == (game->State == BattleTech::State::TAG) )
+			needed_roll = Selected->WeaponRollNeeded( target, &(hex_board->Path), eq );
 		
 		if( eq->Weapon->RangeLong > longest_range )
 			longest_range = eq->Weapon->RangeLong;
@@ -192,19 +195,19 @@ void WeaponMenu::UpdateWeapons( void )
 		rect.x += 80;
 		
 		Label *min = new Label( &rect, eq->Weapon->RangeMin ? Num::ToString(eq->Weapon->RangeMin) : std::string("-"), ItemFont, Font::ALIGN_MIDDLE_LEFT );
-		if( hex_board->TargetDist <= eq->Weapon->RangeMin )
+		if( hex_board->Path.Distance <= eq->Weapon->RangeMin )
 			min->Blue = 0.5f;
 		AddElement( min );
 		rect.x += 40;
 		
 		Label *sht = new Label( &rect, Num::ToString(eq->Weapon->RangeShort), ItemFont, Font::ALIGN_MIDDLE_LEFT );
-		if( (hex_board->TargetDist > eq->Weapon->RangeMin) && (hex_board->TargetDist <= eq->Weapon->RangeShort) )
+		if( (hex_board->Path.Distance > eq->Weapon->RangeMin) && (hex_board->Path.Distance <= eq->Weapon->RangeShort) )
 			sht->Red = 0.5f;
 		AddElement( sht );
 		rect.x += 40;
 		
 		Label *med = new Label( &rect, Num::ToString(eq->Weapon->RangeMedium), ItemFont, Font::ALIGN_MIDDLE_LEFT );
-		if( (hex_board->TargetDist > eq->Weapon->RangeShort) && (hex_board->TargetDist <= eq->Weapon->RangeMedium) )
+		if( (hex_board->Path.Distance > eq->Weapon->RangeShort) && (hex_board->Path.Distance <= eq->Weapon->RangeMedium) )
 		{
 			med->Red = 0.5f;
 			med->Blue = 0.5f;
@@ -213,7 +216,7 @@ void WeaponMenu::UpdateWeapons( void )
 		rect.x += 40;
 		
 		Label *lng = new Label( &rect, Num::ToString(eq->Weapon->RangeLong), ItemFont, Font::ALIGN_MIDDLE_LEFT );
-		if( (hex_board->TargetDist > eq->Weapon->RangeMedium) && (hex_board->TargetDist <= eq->Weapon->RangeLong) )
+		if( (hex_board->Path.Distance > eq->Weapon->RangeMedium) && (hex_board->Path.Distance <= eq->Weapon->RangeLong) )
 			lng->Blue = 0.5f;
 		AddElement( lng );
 		rect.x = Rect.w - 60;
@@ -256,6 +259,11 @@ void WeaponMenu::UpdateWeapons( void )
 		}
 		else
 		{
+			if( needed_roll < 99 )
+			{
+				Label *roll_label = new Label( &rect, Num::ToString(needed_roll), ItemFont, Font::ALIGN_MIDDLE_LEFT );
+				AddElement( roll_label );
+			}
 			for( ; line_element != Elements.end(); line_element ++ )
 			{
 				(*line_element)->Alpha = 0.5f;
@@ -324,32 +332,16 @@ void WeaponMenu::UpdateWeapons( void )
 	rect.x = 10;
 	rect.y += rect.h + 8;
 	std::string gato = std::string("G:") + Num::ToString(Selected->GunnerySkill) + std::string(" A:") + Num::ToString(Selected->Attack) + std::string(" T:");
-	Mech *target = game->TargetMech();
 	gato += target ? Num::ToString(target->Defense) : std::string("");
-	int gato_extra = 0;
-	if( target && target->Prone )
-		gato_extra += (hex_board->TargetDist <= 1) ? -2 : 1;
-	if( Selected->Sensors )
-		gato_extra += Selected->Sensors->Damaged * 2;
-	int gato_other = Selected->HeatFire;
-	if( target && target->Immobile() )
-		gato_other -= 4;
-	bool ecm = hex_board->Path.TeamECMs.size() > hex_board->Path.TeamECMs.count(Selected->Team);
+	int gato_other = 99;
 	if( hex_board->Path.LineOfSight )
 	{
-		gato_other += hex_board->Path.Modifier + gato_extra;
-		if( Selected->WeaponsToFire[ 0xFF ] && (game->State == BattleTech::State::WEAPON_ATTACK) && ! Selected->FiredTAG() )
-			gato_other ++;
-		int8_t trees = hex_board->Path.PartialCover ? (hex_board->Path.Modifier - 1) : hex_board->Path.Modifier;
-		if( trees && (! ecm) && (hex_board->TargetDist <= Selected->ActiveProbeRange()) )
-			gato_other --;
+		gato_other = Selected->WeaponRollNeeded( target, &(hex_board->Path) );
+		if( gato_other < 99 )
+			gato_other -= Selected->GunnerySkill + Selected->Attack - (target ? target->Defense : 0);
 	}
-	else if( target && (target->Spotted < 99) )
-		gato_other += target->Spotted;
-	else if( target && target->Narced() && ! ecm )
-		gato_other += gato_extra + 1;
-	else
-		gato_other = 99;
+	else if( target )
+		gato_other = target->Spotted;
 	gato += std::string(" O:") + ((gato_other < 99) ? Num::ToString(gato_other) : std::string("X"));
 	Label *gato_label = new Label( &rect, gato, ItemFont, Font::ALIGN_MIDDLE_LEFT );
 	gato_label->Red   = 0.f;
@@ -357,26 +349,26 @@ void WeaponMenu::UpdateWeapons( void )
 	AddElement( gato_label );
 	
 	rect.x = Rect.w - 80;
-	Label *range_label = new Label( &rect, "Range " + Num::ToString(hex_board->TargetDist), ItemFont, Font::ALIGN_MIDDLE_LEFT );
-	if( hex_board->TargetDist > longest_range )
+	Label *range_label = new Label( &rect, "Range " + Num::ToString(hex_board->Path.Distance), ItemFont, Font::ALIGN_MIDDLE_LEFT );
+	if( hex_board->Path.Distance > longest_range )
 	{
 		range_label->Red = 1.f;
 		range_label->Green = 0.f;
 		range_label->Blue = 0.f;
 	}
-	else if( hex_board->TargetDist <= min_range )
+	else if( hex_board->Path.Distance <= min_range )
 	{
 		range_label->Red = 1.f;
 		range_label->Green = 0.5f;
 		range_label->Blue = 0.f;
 	}
-	else if( hex_board->TargetDist > medium_range )
+	else if( hex_board->Path.Distance > medium_range )
 	{
 		range_label->Red = 1.f;
 		range_label->Green = 1.f;
 		range_label->Blue = 0.f;
 	}
-	else if( hex_board->TargetDist > shortest_range )
+	else if( hex_board->Path.Distance > shortest_range )
 	{
 		range_label->Red = 0.f;
 		range_label->Green = 1.f;
@@ -541,12 +533,12 @@ void WeaponMenu::UpdateMelee( void )
 	pato += target ? Num::ToString(target->Defense) : std::string("");
 	int pato_other = hex_board->Path.Modifier;
 	if( target && target->Prone )
-		pato_other += (hex_board->TargetDist <= 1) ? -2 : 1;
+		pato_other += (hex_board->Path.Distance <= 1) ? -2 : 1;
 	if( target && target->Immobile() )
 		pato_other -= 4;
 	bool ecm = hex_board->Path.TeamECMs.size() > hex_board->Path.TeamECMs.count(Selected->Team);
 	int8_t trees = hex_board->Path.PartialCover ? (hex_board->Path.Modifier - 1) : hex_board->Path.Modifier;
-	if( trees && (! ecm) && (hex_board->TargetDist <= Selected->ActiveProbeRange()) )
+	if( trees && (! ecm) && (hex_board->Path.Distance <= Selected->ActiveProbeRange()) )
 		pato_other --;
 	pato += std::string(" O:") + ((pato_other < 99) ? Num::ToString(pato_other) : std::string("X"));
 	Label *pato_label = new Label( &rect, pato, ItemFont, Font::ALIGN_MIDDLE_LEFT );

@@ -437,7 +437,7 @@ void MechEquipment::Hit( bool directly, bool find_slot )
 		Event e( mech );
 		e.Effect = BattleTech::Effect::EXPLOSION;
 		e.Sound = "m_expl.wav";
-		e.Text = mech->ShortFullName() + std::string(" destroyed by cockpit hit!");
+		e.Text = mech->ShortFullName() + std::string(" destroyed by Cockpit hit!");
 		e.Duration = 2.f;
 		e.ShowCritHit( this );
 		server->Events.push( e );
@@ -453,7 +453,7 @@ void MechEquipment::Hit( bool directly, bool find_slot )
 			Event e( mech );
 			e.Effect = BattleTech::Effect::EXPLOSION;
 			e.Sound = "m_expl.wav";
-			e.Text = mech->ShortFullName() + std::string(" destroyed by engine failure!");
+			e.Text = mech->ShortFullName() + std::string(" destroyed by Engine failure!");
 			e.Duration = 2.f;
 			e.ShowCritHit( this );
 			server->Events.push( e );
@@ -483,19 +483,21 @@ void MechEquipment::Hit( bool directly, bool find_slot )
 	else if( (ID == BattleTech::Equipment::DOUBLE_HEAT_SINK) && (Damaged == 1) && mech )
 		mech->HeatDissipation -= 2;
 	
-	else if( (ID == BattleTech::Equipment::GYRO) && mech && ! mech->Prone )
+	else if( (ID == BattleTech::Equipment::GYRO) && (Damaged == 2) && mech && ! mech->Prone )
 	{
-		mech->PSRs ++;
-		if( Damaged == 2 )
-			mech->AutoFall = "gyro destruction";
+		while( mech->PSRs.size() )
+			mech->PSRs.pop();
+		mech->PSRs.push( "to avoid fall" );
+		mech->AutoFall = "Gyro destruction";
 	}
 	
 	else if( ((ID == BattleTech::Equipment::HIP)
 	||        (ID == BattleTech::Equipment::UPPER_LEG_ACTUATOR)
 	||        (ID == BattleTech::Equipment::LOWER_LEG_ACTUATOR)
-	||        (ID == BattleTech::Equipment::FOOT_ACTUATOR))
+	||        (ID == BattleTech::Equipment::FOOT_ACTUATOR)
+	||        (ID == BattleTech::Equipment::GYRO))
 	&& mech && ! mech->Prone )
-		mech->PSRs ++;
+		mech->PSRs.push( std::string("to avoid fall from ") + Name + std::string(" hit") );
 	
 	else if( directly && ExplosionDamage && Location )
 	{
@@ -508,17 +510,13 @@ void MechEquipment::Hit( bool directly, bool find_slot )
 		ExplosionDamage = 0;
 		
 		Event e( mech );
-		/*
-		e.Effect = BattleTech::Effect::BLINK;
-		e.Misc = BattleTech::RGB332::RED;
-		*/
 		e.ShowCritHit( this );
 		e.Sound = "b_ammoex.wav";
 		e.Text = Name + std::string(" exploded for ") + Num::ToString((int)explosion) + std::string(" damage!");
 		e.Duration = 2.f;
 		server->Events.push( e );
 		
-		mech->HitPilot( 2 );
+		mech->HitPilot( "from ammo explosion", 2 );
 		
 		Location->Damage( explosion, STRUCTURE, 0 );
 	}
@@ -583,6 +581,8 @@ size_t MechLocation::IntactCriticalCount( uint16_t crit_id ) const
 void MechLocation::Damage( uint16_t damage, uint8_t arc, uint8_t crit )
 {
 	BattleTechServer *server = (BattleTechServer*) Raptor::Server;
+	int16_t had_structure = Structure;
+	bool did_damage = damage && had_structure;
 	
 	if( crit && ! damage )
 	{
@@ -625,91 +625,105 @@ void MechLocation::Damage( uint16_t damage, uint8_t arc, uint8_t crit )
 			if( MyMech )
 				MyMech->PhaseDamage += structure_damage;
 			
+			if( ! Destroyed )
+			{
+				Event e( MyMech );
+				if( Structure )
+				{
+					e.Sound = "m_struct.wav";
+					e.Text = Num::ToString((int)structure_damage) + std::string(" damage to structure; ") + Num::ToString((int)Structure) + std::string(" structure remaining.");
+				}
+				else
+				{
+					Destroyed = true;
+					e.Sound = "m_alarm.wav";
+					e.Duration = 1.f;
+					e.Text = Num::ToString((int)structure_damage) + std::string(" damage to structure destroys ") + Name + std::string("!");
+				}
+				e.ShowHealth( Loc, STRUCTURE );
+				server->Events.push( e );
+			}
+		}
+	}
+	
+	// Critical Hit Checks (structure damage and/or rolled 2 locaiton)
+	CriticalHitCheck( crit );
+	crit = 0;
+	
+	if( MyMech && MyMech->Destroyed() )
+		return;
+	
+	// Check Location Destroyed
+	if( had_structure && ! Structure )
+	{
+		if( ! Destroyed )
+		{
+			// Just in case the event that destroyed the region did not notify, although it always should have.
+			Destroyed = true;
 			Event e( MyMech );
-			e.Sound = "m_struct.wav";
-			e.Text = Num::ToString((int)structure_damage) + std::string(" damage to structure; ") + Num::ToString((int)Structure) + std::string(" structure remaining.");
+			e.Sound = "m_alarm.wav";
+			e.Text = Name + std::string(" destroyed!");
 			e.ShowHealth( Loc, STRUCTURE );
 			server->Events.push( e );
 		}
-		bool structure_destroyed = structure_damage && ! Structure;
 		
-		// Critical Hit Checks (structure damage and/or rolled 2 locaiton)
-		CriticalHitCheck( crit );
-		crit = 0;
+		// Don't allow using equipment on destroyed locations.
+		uint8_t engine_hits = 0;
+		for( std::vector<MechEquipment*>::iterator slot = CriticalSlots.begin(); slot != CriticalSlots.end(); slot ++ )
+		{
+			(*slot)->Hit( false, false );
+			if( (*slot)->ID == BattleTech::Equipment::ENGINE )
+				engine_hits ++;
+		}
 		
-		if( MyMech && MyMech->Destroyed() )
-			return;
+		// Remove all critical slots on destroyed regions.
+		CriticalSlots.clear();
 		
-		// Check Location Destroyed
-		if( structure_destroyed )
+		if( engine_hits && MyMech && ! MyMech->Destroyed() )
 		{
 			Event e( MyMech );
-			e.Effect = BattleTech::Effect::BLINK;
-			e.Misc = BattleTech::RGB332::RED;
-			e.Sound = "m_alarm.wav";
-			e.Text = Name + std::string(" destroyed!");
+			e.Text = std::string("Engine takes ") + Num::ToString(engine_hits) + std::string((engine_hits == 1)?" hit.":" hits.");
+			e.ShowCritHit( MyMech->Engine, Loc );
 			server->Events.push( e );
-			
-			// Don't allow using equipment on destroyed locations.
-			uint8_t engine_hits = 0;
-			for( std::vector<MechEquipment*>::iterator slot = CriticalSlots.begin(); slot != CriticalSlots.end(); slot ++ )
-			{
-				(*slot)->Hit( false, false );
-				if( (*slot)->ID == BattleTech::Equipment::ENGINE )
-					engine_hits ++;
-			}
-			
-			// Remove all critical slots on destroyed regions.
-			CriticalSlots.clear();
-			
-			if( engine_hits && !(MyMech && MyMech->Destroyed()) )
+		}
+		
+		// Lose the attached limb if side torso was just destroyed.
+		if( AttachedLimb )
+		{
+			if( AttachedLimb->Structure && MyMech && ! MyMech->Destroyed() )
 			{
 				Event e( MyMech );
-				e.Text = std::string("Engine takes ") + Num::ToString(engine_hits) + std::string((engine_hits == 1)?" hit.":" hits.");
-				e.ShowCritHit( MyMech->Engine, Loc );
+				e.Sound = "m_struct.wav";
+				e.Text = AttachedLimb->Name + std::string(" blown off!");
+				e.ShowHealth( AttachedLimb->Loc, STRUCTURE, 0 );
 				server->Events.push( e );
 			}
 			
-			// Lose the attached limb if side torso was just destroyed.
-			if( AttachedLimb )
-			{
-				if( AttachedLimb->Structure && !(MyMech && MyMech->Destroyed()) )
-				{
-					Event e( MyMech );
-					/*
-					e.Effect = BattleTech::Effect::BLINK;
-					e.Misc = BattleTech::RGB332::RED;
-					*/
-					e.Sound = "m_struct.wav";
-					e.Text = AttachedLimb->Name + std::string(" blown off!");
-					e.ShowHealth( AttachedLimb->Loc, STRUCTURE, 0 );
-					server->Events.push( e );
-				}
-				
-				AttachedLimb->Structure = 0;
-				AttachedLimb->Armor = 0;
-				for( std::vector<MechEquipment*>::iterator slot = AttachedLimb->CriticalSlots.begin(); slot != AttachedLimb->CriticalSlots.end(); slot ++ )
-					(*slot)->Hit( false, false );
-				AttachedLimb->CriticalSlots.clear();
-				
-				AttachedLimb = NULL;
-			}
+			AttachedLimb->Structure = 0;
+			AttachedLimb->Armor = 0;
+			for( std::vector<MechEquipment*>::iterator slot = AttachedLimb->CriticalSlots.begin(); slot != AttachedLimb->CriticalSlots.end(); slot ++ )
+				(*slot)->Hit( false, false );
+			AttachedLimb->CriticalSlots.clear();
 			
-			// Destroyed arm should no longer be considered attached.
-			else if( DamageTransfer && (DamageTransfer->AttachedLimb == this) )
-				DamageTransfer->AttachedLimb = NULL;
-			
-			// Losing a leg is an automatic fall.
-			if( IsLeg && MyMech && ! MyMech->Prone && ! MyMech->Destroyed() )
-			{
-				MyMech->PSRs ++;
-				MyMech->AutoFall = "leg destruction";
-			}
+			AttachedLimb = NULL;
 		}
-		else if( IsHead && MyMech )
-			// Pilot takes 1 point of damage for any head hit.
-			MyMech->HitPilot();
+		
+		// Destroyed arm should no longer be considered attached.
+		else if( DamageTransfer && (DamageTransfer->AttachedLimb == this) )
+			DamageTransfer->AttachedLimb = NULL;
+		
+		// Losing a leg is an automatic fall.
+		if( IsLeg && MyMech && ! MyMech->Prone && ! MyMech->Destroyed() )
+		{
+			while( MyMech->PSRs.size() )
+				MyMech->PSRs.pop();
+			MyMech->PSRs.push( "to avoid fall" );
+			MyMech->AutoFall = Name + std::string(" destruction");
+		}
 	}
+	else if( did_damage && IsHead && MyMech )
+		// Pilot takes 1 point of damage for any head hit.
+		MyMech->HitPilot( "from Head hit", 1 );
 	
 	if( MyMech && MyMech->Destroyed() )
 		return;
@@ -748,6 +762,22 @@ void MechLocation::CriticalHitCheck( uint8_t crit )
 {
 	BattleTechServer *server = (BattleTechServer*) Raptor::Server;
 	
+	if( ! Structure )
+	{
+		// Location was destroyed, so only check for critical hits if something could explode.
+		bool explosive = false;
+		for( std::vector<MechEquipment*>::const_iterator slot = CriticalSlots.begin(); slot != CriticalSlots.end(); slot ++ )
+		{
+			if( (*slot)->ExplosionDamage )
+			{
+				explosive = true;
+				break;
+			}
+		}
+		if( ! explosive )
+			return;
+	}
+	
 	for( uint8_t i = 0; i < crit; i ++ )
 	{
 		int roll = Roll::Dice( 2 );
@@ -763,11 +793,16 @@ void MechLocation::CriticalHitCheck( uint8_t crit )
 			hits = 1;
 		
 		Event e( MyMech );
-		e.Text = Name + std::string(" rolled ") + Num::ToString(roll) + std::string(" on critical check");
+		e.Text = std::string("Critical hit check rolled ") + Num::ToString(roll);
 		if( (roll == 12) && ! IsTorso )
 		{
-			e.Sound = "m_alarm.wav";
-			e.Text += std::string(", destroying the limb!");
+			if( ! Destroyed )
+			{
+				Destroyed = true;
+				e.Sound = "m_alarm.wav";
+			}
+			e.Duration = 1.f;
+			e.Text += std::string(", destroying the ") + Name + std::string("!");
 			e.ShowHealth( Loc, STRUCTURE );
 		}
 		else
@@ -806,19 +841,24 @@ void MechLocation::CriticalHits( uint8_t hits )
 		CriticalSlots.erase( CriticalSlots.begin() + index );
 		
 		Event e( MyMech );
-		/*
-		e.Effect = BattleTech::Effect::BLINK;
-		e.Misc = BattleTech::RGB332::DARK_RED;
-		*/
 		e.ShowCritHit( crit, Loc );
 		e.Sound = "b_crit.wav";
+		e.Duration = 1.f;
 		e.Text = std::string("Critical hit: ") + crit->Name;
-		if( (crit->ID == BattleTech::Equipment::ENGINE) || (crit->ID == BattleTech::Equipment::GYRO) )
+		if( (crit->ID == BattleTech::Equipment::ENGINE)  || (crit->ID == BattleTech::Equipment::GYRO)
+		||  (crit->ID == BattleTech::Equipment::SENSORS) || (crit->ID == BattleTech::Equipment::LIFE_SUPPORT) )
 			e.Text += std::string(" (") + Num::ToString( crit->Damaged + 1 ) + std::string(" total)");
+		else if( crit->Damaged && (crit->Weapon || (HeavyMetal::CritSlots( crit->ID, MyMech->Clan, NULL ) < 255)) )
+			e.Text += std::string(" (already damaged)");
 		server->Events.push( e );
 		
 		// Apply hit to equipment, and check for weapon or ammo explosion.
 		crit->Hit( true, false );
+		
+		// If this critical hit destroyed the Mech, the remaining ones are irrelevant.
+		// FIXME: This may prevent checking engine explosion if ammo explosion kills the pilot.
+		if( MyMech->Destroyed() )
+			break;
 	}
 }
 
@@ -826,7 +866,7 @@ void MechLocation::CriticalHits( uint8_t hits )
 // -----------------------------------------------------------------------------
 
 
-std::string MechLocationRoll::String( const char *verb )
+std::string MechLocationRoll::String( const char *verb ) const
 {
 	std::string arc_name = "Front";
 	if( Arc == REAR )
@@ -850,6 +890,13 @@ std::string MechLocationRoll::String( const char *verb )
 	return std::string("Location roll ") + Num::ToString((int)Roll)
 		+ std::string(" on ") + arc_name
 		+ std::string(" ") + std::string(verb) + std::string(" ") + loc_name;
+}
+
+
+void MechLocationRoll::Damage( uint16_t damage ) const
+{
+	if( Loc )
+		Loc->Damage( damage, Arc, Crit ? 1 : 0 );
 }
 
 
@@ -959,7 +1006,6 @@ Mech::Mech( uint32_t id ) : GameObject( id, BattleTech::Object::MECH )
 	Spotted = 99;
 	Tagged = false;
 	PhaseDamage = 0;
-	PSRs = 0;
 	PSRModifier = 0;
 	StandAttempts = 0;
 	TookTurn = false;
@@ -975,7 +1021,6 @@ void Mech::ClientInit( void )
 {
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	game->Snd.Play( game->Res.GetSound("m_start.wav") );
-	
 	
 	std::string fullname = FullName();
 	std::map< std::string, std::map<uint8_t,const Animation*> >::const_iterator best = game->MechTex.end();
@@ -1003,12 +1048,8 @@ void Mech::ClientInit( void )
 			Locations[ ani->first ].Tex.BecomeInstance( ani->second );
 	}
 	
-	
 	if( PlayerID == game->PlayerID )
-	{
 		game->SelectedID = ID;
-		//game->Snd.Play( game->Res.GetSound("b_start.wav") );
-	}
 }
 
 
@@ -1674,7 +1715,7 @@ MechLocation *Mech::HitLocation( uint8_t arc, uint8_t roll )
 	if( ! roll )
 		roll = Roll::Dice( 2 );
 	
-	MechLocation *location = &(Locations[ HEAD ]);
+	MechLocation *location = &(Locations[ HEAD ]);  // roll == 12
 	if( (arc == FRONT) || (arc == REAR) )
 	{
 		if( roll ==  2 ) location = &(Locations[ CENTER_TORSO ]);
@@ -1733,7 +1774,7 @@ MechLocation *Mech::PunchLocation( uint8_t arc, uint8_t roll )
 	
 	// FIXME: Quads have a different table.
 	
-	MechLocation *location = &(Locations[ HEAD ]);
+	MechLocation *location = &(Locations[ HEAD ]);  // roll == 6
 	if( (arc == FRONT) || (arc == REAR) )
 	{
 		if( roll == 1 ) location = &(Locations[ LEFT_ARM     ]);
@@ -1811,7 +1852,8 @@ void Mech::EngineExplode( void )
 			
 			Event e( *mech );
 			e.Effect = BattleTech::Effect::EXPLOSION;
-			e.Misc = BattleTech::Effect::FLAMER;
+			e.Misc = BattleTech::Effect::MISSILE;
+			e.Sound = "w_hit_f.wav";
 			e.Text = lr.String() + std::string(" for ") + Num::ToString((int)damage) + std::string(" damage from engine explosion.");
 			e.Loc = lr.Loc->Loc;
 			server->Events.push( e );
@@ -1822,7 +1864,7 @@ void Mech::EngineExplode( void )
 }
 
 
-bool Mech::PilotSkillCheck( int8_t modifier, bool fall )
+bool Mech::PilotSkillCheck( std::string reason, int8_t modifier, bool fall )
 {
 	uint8_t need = PilotSkill + modifier;
 	
@@ -1873,8 +1915,7 @@ bool Mech::PilotSkillCheck( int8_t modifier, bool fall )
 		Event e( this );
 		e.Effect = BattleTech::Effect::BLINK;
 		e.Misc = passed ? BattleTech::RGB332::BLACK : BattleTech::RGB332::DARK_RED;
-		e.Text = std::string("PSR for ") + ShortName()
-			+ std::string(fall ? (Prone ? " to stand needs " : " to avoid fall needs ") : " to avoid pilot hit needs ")
+		e.Text = std::string("PSR for ") + ShortName() + std::string(" ") + reason + std::string(" needs ")
 			+ Num::ToString((int)need) + std::string(", rolled ") + Num::ToString((int)roll)
 			+ std::string(passed ? ": PASSED!" : ": FAILED!");
 		server->Events.push( e );
@@ -1884,7 +1925,7 @@ bool Mech::PilotSkillCheck( int8_t modifier, bool fall )
 		Event e( this );
 		e.Effect = BattleTech::Effect::BLINK;
 		e.Misc = BattleTech::RGB332::DARK_RED;
-		e.Text = "PSR roll automatically FAILED";
+		e.Text = std::string("PSR ") + reason + (" automatically FAILED");
 		if( AutoFall.length() )
 			e.Text += std::string(" due to ") + AutoFall;
 		else if( Unconscious )
@@ -1912,12 +1953,32 @@ void Mech::Fall( int8_t psr_modifier )
 	Facing %= 6;
 	
 	uint8_t hit_arc = FRONT;
-	if( (dir == 2) || (dir == 3) )
+	std::string dir_str = "forward";
+	if( dir == 2 )
+	{
 		hit_arc = RIGHT_SIDE;
+		dir_str = "1 right";
+	}
+	else if( dir == 3 )
+	{
+		hit_arc = RIGHT_SIDE;
+		dir_str = "2 right";
+	}
 	else if( dir == 4 )
+	{
 		hit_arc = REAR;
-	else if( (dir == 5) || (dir == 6) )
+		dir_str = "backwards";
+	}
+	else if( dir == 5 )
+	{
 		hit_arc = LEFT_SIDE;
+		dir_str = "2 left";
+	}
+	else if( dir == 6 )
+	{
+		hit_arc = LEFT_SIDE;
+		dir_str = "1 left";
+	}
 	
 	uint16_t damage = ceilf(Tons/10.f);
 	
@@ -1929,31 +1990,40 @@ void Mech::Fall( int8_t psr_modifier )
 	e1.Effect = BattleTech::Effect::FALL;
 	e1.Sound = "m_fall.wav";
 	e1.ShowFacing( Facing, true );
-	e1.Text = ShortFullName() + std::string(" fell!  Direction roll is ") + Num::ToString((int)dir) + std::string(".");
+	e1.Text = ShortFullName() + std::string(" fell!  Direction roll ") + Num::ToString((int)dir) + std::string(" falls ") + dir_str + std::string(".");
 	server->Events.push( e1 );
 	
 	Event e2( this );
 	e2.Text = lr.String() + std::string(" for ") + Num::ToString((int)damage) + std::string(" fall damage.");
 	server->Events.push( e2 );
 	
-	lr.Loc->Damage( damage, hit_arc, lr.Crit );
+	lr.Damage( damage );
 	
-	if( ! PilotSkillCheck( psr_modifier, false ) )
-		HitPilot();
+	// If the fall destroys the Mech, we no longer care about pilot hits.
+	if( Destroyed() )
+		return;
+	
+	if( ! PilotSkillCheck( "to avoid pilot hit from fall", psr_modifier, false ) )
+		HitPilot( "from falling", 1 );
 }
 
 
-void Mech::HitPilot( uint8_t hits )
+void Mech::HitPilot( std::string reason, uint8_t hits )
 {
 	if( ! hits )
 		return;
 	
 	BattleTechServer *server = (BattleTechServer*) Raptor::Server;
 	
+	int total_hits = PilotDamage + hits;
+	
 	Event e( this );
 	e.Effect = BattleTech::Effect::BLINK;
-	e.Misc = BattleTech::RGB332::PURPLE;
-	e.Text = std::string("Pilot takes ") + Num::ToString((int)hits) + std::string((hits == 1)?" hit (":" hits (") + Num::ToString((int)(PilotDamage + hits)) + std::string(" total).");
+	e.Misc = (total_hits >= 6) ? BattleTech::RGB332::RED : BattleTech::RGB332::PURPLE;
+	e.Text = std::string("Pilot takes ") + Num::ToString((int)hits) + std::string((hits == 1)?" hit":" hits");
+	if( reason.length() )
+		e.Text += std::string(" ") + reason;
+	e.Text += std::string(" (") + Num::ToString(total_hits) + std::string(" total).");
 	server->Events.push( e );
 	
 	for( uint8_t hit = 0; hit < hits; hit ++ )
@@ -2112,6 +2182,22 @@ bool Mech::Ready( void ) const
 
 bool Mech::ReadyAndAble( int phase ) const
 {
+	if( ClientSide() )
+	{
+		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+		if( game->ReadyAndAbleCache.find( ID ) == game->ReadyAndAbleCache.end() )
+			game->ReadyAndAbleCache[ ID ] = ReadyAndAbleNoCache( phase );
+		return game->ReadyAndAbleCache[ ID ];
+	}
+	return ReadyAndAbleNoCache( phase );
+}
+
+
+bool Mech::ReadyAndAbleNoCache( int phase ) const
+{
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+	bool ff = ClientSide() ? game->FF() : ((const BattleTechServer*)( Raptor::Server ))->FF();
+	
 	if( ! Ready() )
 		return false;
 	
@@ -2119,7 +2205,7 @@ bool Mech::ReadyAndAble( int phase ) const
 		return false;
 	
 	if( ! phase )
-		phase = ClientSide() ? Raptor::Game->State : Raptor::Server->State;
+		phase = ClientSide() ? game->State : Raptor::Server->State;
 	
 	if( (phase == BattleTech::State::MOVEMENT) || (phase == BattleTech::State::SETUP) )
 		return WalkDist() || (JumpDist() && ! Prone);
@@ -2130,10 +2216,29 @@ bool Mech::ReadyAndAble( int phase ) const
 		if( (skip_tag != Data->Properties.end()) && Str::AsBool(skip_tag->second) )
 			return false;
 		
+		const MechEquipment *tag = NULL;
 		for( std::vector<MechEquipment>::const_iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
 		{
-			if( equip->Weapon && equip->Weapon->TAG && ! equip->Damaged )
+			if( equip->Weapon && equip->Weapon->TAG && ! equip->Damaged && (! tag || (tag->Weapon->RangeLong < equip->Weapon->RangeLong)) )
+				tag = &*equip;
+		}
+		if( ! tag )
+			return false;
+		
+		for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data->GameObjects.begin(); obj_iter != Data->GameObjects.end(); obj_iter ++ )
+		{
+			if( obj_iter->second->Type() == BattleTech::Object::MECH )
+			{
+				const Mech *target = (const Mech*) obj_iter->second;
+				if( Team && (target->Team == Team) && ! ff )
+					continue;
+				if( target->Destroyed() )
+					continue;
+				if( WeaponRollNeeded( target, NULL, tag ) > 12 )
+					continue;
+				// FIXME: Make sure there are teammates with LRMs within range that do not have line of sight.
 				return true;
+			}
 		}
 		return false;
 	}
@@ -2146,8 +2251,6 @@ bool Mech::ReadyAndAble( int phase ) const
 	
 	if( phase == BattleTech::State::PHYSICAL_ATTACK )
 	{
-		bool ff = ClientSide() ? ((const BattleTechGame*)( Raptor::Game ))->FF() : ((const BattleTechServer*)( Raptor::Server ))->FF();
-		
 		for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data->GameObjects.begin(); obj_iter != Data->GameObjects.end(); obj_iter ++ )
 		{
 			if( obj_iter->second->Type() == BattleTech::Object::MECH )
@@ -2164,6 +2267,80 @@ bool Mech::ReadyAndAble( int phase ) const
 	
 	// Other phases don't have user actions to take.
 	return false;
+}
+
+
+int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const MechEquipment *eq ) const
+{
+	if( ! target )
+		return 99;
+	
+	ShotPath p;
+	if( ! path )
+	{
+		HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
+		p = map->Path( X, Y, target->X, target->Y );
+		path = &p;
+	}
+	
+	if( eq && ! eq->Weapon )
+		return 99;
+	if( eq && eq->Weapon->Defensive )
+		return 99;
+	if( eq && (eq->Damaged || eq->Jammed) )
+		return 99;
+	if( eq && eq->Location && eq->Location->IsLeg && path->LegWeaponsBlocked )
+		return 99;
+	if( eq && eq->Weapon->AmmoPerTon && ! TotalAmmo(eq->ID) )
+		return 99;
+	if( eq && ! eq->WithinFiringArc( target->X, target->Y ) )
+		return 99;
+	if( eq && (path->Distance > eq->Weapon->RangeLong) )
+		return 99;
+	
+	bool lrm = eq && strstr( eq->Weapon->Name.c_str(), "LRM " );
+	uint8_t defense = /* (semiguided && target->Tagged) ? 0 : */ target->Defense;
+	int8_t spotted  = /* (semiguided && target->Tagged) ? 0 : */ target->Spotted;
+	
+	int8_t extra = 0;
+	if( target->Prone )
+		extra += (path->Distance <= 1) ? -2 : 1;
+	if( Sensors )
+		extra += Sensors->Damaged * 2;
+	
+	int8_t difficulty = GunnerySkill + HeatFire + Attack + defense + path->Modifier + extra;
+	if( eq )
+		difficulty += eq->ShotModifier( path->Distance, target->ActiveStealth );
+	
+	bool ecm = path->TeamECMs.size() > path->TeamECMs.count(Team);
+	
+	if( path->LineOfSight )
+	{
+		if( (! eq || ! eq->Weapon->TAG) && SpottingWithoutTAG() )
+			difficulty ++;
+		
+		int8_t trees = path->PartialCover ? (path->Modifier - 1) : path->Modifier;
+		if( trees && (! ecm) && (path->Distance <= ActiveProbeRange()) )
+			difficulty --;
+	}
+	else if( lrm && (target->Spotted < 99) )
+		difficulty = GunnerySkill + HeatFire + Attack + defense + spotted + eq->ShotModifier( path->Distance, target->ActiveStealth );
+	else if( lrm && target->Narced() && ! ecm )
+		difficulty = GunnerySkill + HeatFire + Attack + defense + 1 + extra + eq->ShotModifier( path->Distance, target->ActiveStealth );
+	else
+		return 99;
+	
+	if( target->Immobile() )
+		difficulty -= 4;
+	
+	return difficulty;
+}
+
+
+bool Mech::SpottingWithoutTAG( void ) const
+{
+	std::map<uint8_t,uint8_t>::const_iterator spotting = WeaponsToFire.find( 0xFF );
+	return (spotting != WeaponsToFire.end()) && spotting->second && ! FiredTAG();
 }
 
 
@@ -2358,14 +2535,14 @@ MechEquipment *Mech::FindAmmo( uint16_t eq_id )
 }
 
 
-uint16_t Mech::TotalAmmo( uint16_t eq_id )
+uint16_t Mech::TotalAmmo( uint16_t eq_id ) const
 {
 	if( eq_id && (eq_id < 400) )
 		eq_id += 400;
 	
 	uint16_t total = 0;
 	
-	for( std::vector<MechEquipment>::iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
+	for( std::vector<MechEquipment>::const_iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
 	{
 		if( eq_id && (equip->ID != eq_id) )
 			continue;
@@ -2383,6 +2560,8 @@ bool Mech::SpendAmmo( uint16_t eq_id )
 	if( ammo && ammo->Ammo )
 	{
 		ammo->Ammo --;
+		if( ! ammo->Ammo )
+			ammo->ExplosionDamage = 0;
 		return true;
 	}
 	return false;
@@ -2512,21 +2691,22 @@ void Mech::BeginPhase( int phase )
 	
 	if( PhaseDamage >= 20 )
 	{
-		PSRs ++;
+		PSRs.push( "to avoid fall from 20+ damage" );
 		PSRModifier ++;
 	}
 	PhaseDamage = 0;
 	
 	if( ! ClientSide() )
 	{
-		for( uint8_t i = 0; i < PSRs; i ++ )
+		while( PSRs.size() )
 		{
+			std::string reason = PSRs.front();
+			PSRs.pop();
 			if( Prone || Destroyed() )
-				break;
-			PilotSkillCheck( PSRModifier );
+				continue;
+			PilotSkillCheck( reason, PSRModifier );
 		}
 	}
-	PSRs = 0;
 	PSRModifier = 0;
 	AutoFall = "";
 	
@@ -2587,31 +2767,12 @@ void Mech::BeginPhase( int phase )
 			server->Events.push( e );
 		}
 		
-		if( TSM && (Heat >= 9) && (Heat < 30) )
-		{
-			Event e( this );
-			e.Effect = BattleTech::Effect::BLINK;
-			e.Duration = 1.6f;
-			if( HeatMove > 2 )
-				e.Text = std::string("Heat activates Triple-Strength Myomer: movement +2, total penalty -") + Num::ToString(((int)HeatMove)-2) + std::string(".");
-			else
-				e.Text = std::string("Heat activates Triple-Strength Myomer: movement +2, total bonus +") + Num::ToString(2-(int)HeatMove) + std::string(".");
-			server->Events.push( e );
-		}
-		else if( ActiveTSM && (Heat < 9) )
-		{
-			Event e( this );
-			e.Effect = BattleTech::Effect::BLINK;
-			e.Text = "Triple-Strength Myomer deactivates without heat.";
-			server->Events.push( e );
-		}
-		
 		if( LifeSupport && LifeSupport->Damaged )
 		{
 			if( Heat >= 26 )
-				HitPilot( 2 );
+				HitPilot( "at 26+ heat without Life Support", 2 );
 			else if( Heat >= 15 )
-				HitPilot();
+				HitPilot( "at 15+ heat without Life Support", 1 );
 		}
 		
 		uint8_t ammo_explosion_check = 0;
@@ -2622,7 +2783,7 @@ void Mech::BeginPhase( int phase )
 		else if( Heat >= 19 )
 			ammo_explosion_check = 4;
 		
-		if( ammo_explosion_check )
+		if( ammo_explosion_check && ! Destroyed() )
 		{
 			MechEquipment *ammo = FindAmmo();
 			if( ammo )
@@ -2640,6 +2801,25 @@ void Mech::BeginPhase( int phase )
 		
 		if( ! Destroyed() )
 		{
+			if( TSM && (Heat >= 9) && (Heat < 30) )
+			{
+				Event e( this );
+				e.Effect = BattleTech::Effect::BLINK;
+				e.Duration = 1.6f;
+				if( HeatMove > 2 )
+					e.Text = std::string("Heat activates Triple-Strength Myomer: movement +2, total penalty -") + Num::ToString(((int)HeatMove)-2) + std::string(".");
+				else
+					e.Text = std::string("Heat activates Triple-Strength Myomer: movement +2, total bonus +") + Num::ToString(2-(int)HeatMove) + std::string(".");
+				server->Events.push( e );
+			}
+			else if( ActiveTSM && (Heat < 9) )
+			{
+				Event e( this );
+				e.Effect = BattleTech::Effect::BLINK;
+				e.Text = "Triple-Strength Myomer deactivates without heat.";
+				server->Events.push( e );
+			}
+			
 			bool was_shutdown = Shutdown;
 			uint8_t shutdown_check = 0;
 			uint8_t shutdown_roll = 0;
@@ -2707,7 +2887,10 @@ void Mech::BeginPhase( int phase )
 				Event e( this );
 				e.Effect = BattleTech::Effect::BLINK;
 				if( Shutdown )
+				{
+					e.Misc = BattleTech::RGB332::DARK_GREY;
 					e.Sound = "m_shtdwn.wav";
+				}
 				else
 				{
 					e.Misc = BattleTech::RGB332::DARK_GREEN;
@@ -2722,7 +2905,7 @@ void Mech::BeginPhase( int phase )
 				if( Shutdown && ! Prone )
 				{
 					Shutdown = false;
-					PilotSkillCheck( 3 );
+					PilotSkillCheck( "to avoid fall from shutdown", 3 );
 					Shutdown = true;
 				}
 			}

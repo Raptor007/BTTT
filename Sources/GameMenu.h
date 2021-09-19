@@ -51,6 +51,7 @@ public:
 	GameMenuDisconnectButton( SDL_Rect *rect, Font *button_font );
 	virtual ~GameMenuDisconnectButton();
 	void Clicked( Uint8 button = SDL_BUTTON_LEFT );
+	bool EndGame( void ) const;
 };
 
 

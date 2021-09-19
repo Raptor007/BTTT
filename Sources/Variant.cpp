@@ -173,7 +173,6 @@ bool Variant::Load( const char *filename )
 		for( int i = 0; i < qty; i ++ )
 		{
 			Equipment.push_back( VariantEquipment(wid) );
-			//Equipment.back().Ammo = ammo;
 			Equipment.back().Rear = rear;
 		}
 		
@@ -200,10 +199,11 @@ bool Variant::Load( const char *filename )
 			{
 				size_t slots = HeavyMetal::CritSlots( crit_id, Clan, weapons );
 				VariantEquipment *equipment = NULL;
+				bool rear = (crit_id <= 400) && ptr[ 2 ];
 				
 				for( std::vector<VariantEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
 				{
-					if( (eq->ID == crit_id) && (eq->CritLocs.size() < slots) )
+					if( (eq->ID == crit_id) && (eq->CritLocs.size() < slots) && (eq->Rear == rear) )
 					{
 						equipment = &*eq;
 						break;
@@ -214,7 +214,8 @@ bool Variant::Load( const char *filename )
 				{
 					Equipment.push_back( VariantEquipment(crit_id) );
 					equipment = &(Equipment.back());
-					equipment->Ammo = ptr[ 2 ];
+					if( crit_id > 400 )
+						equipment->Ammo = ptr[ 2 ];
 				}
 				
 				equipment->CritLocs.push_back( i );

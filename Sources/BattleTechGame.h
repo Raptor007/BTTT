@@ -22,6 +22,7 @@ public:
 	std::map< short, HMWeapon > ClanWeap, ISWeap;
 	std::map< std::string, Variant > Variants;
 	std::map< std::string, std::map<uint8_t,const Animation*> > MechTex;
+	std::map< uint32_t, bool > ReadyAndAbleCache;
 	
 	double X, Y, Zoom;
 	uint8_t TeamTurn;
@@ -55,6 +56,7 @@ public:
 	HexMap *Map( void );
 	bool Hotseat( void ) const;
 	bool FF( void ) const;
+	bool Admin( void );
 	uint8_t MyTeam( void );
 	Mech *GetMech( uint32_t mech_id );
 	Mech *SelectedMech( void );

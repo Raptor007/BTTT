@@ -44,6 +44,7 @@ public:
 class ShotPath : public std::vector<const Hex*>
 {
 public:
+	int Distance;
 	int Modifier;
 	bool LineOfSight;
 	bool PartialCover;

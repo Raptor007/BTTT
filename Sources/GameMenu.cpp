@@ -38,12 +38,12 @@ GameMenu::GameMenu( void )
 	rect.w = Rect.w - rect.x * 2;
 	rect.y = 40;
 	rect.h = ItemFont->GetAscent() + 2;
-	if( Raptor::Server->IsRunning() )
+	if( game->Admin() )
 	{
 		AddElement( new GameMenuCheckBox( &rect, ItemFont, "hotseat", "Hotseat Mode" ) );
 		rect.y += rect.h + 10;
 		
-		if( Raptor::Server->State == BattleTech::State::SETUP )
+		if( Raptor::Game->State <= BattleTech::State::SETUP )
 		{
 			AddElement( new GameMenuCheckBox( &rect, ItemFont, "mech_limit", "1 Mech Per Player", "1", "0" ) );
 			rect.y += rect.h + 10;
@@ -153,7 +153,10 @@ void GameMenu::Draw( void )
 
 bool GameMenu::KeyDown( SDLKey key )
 {
-	if( key == SDLK_ESCAPE )
+	HexBoard *hex_board = (HexBoard*) Raptor::Game->Layers.Find("HexBoard");
+	if( hex_board && (hex_board->Selected == hex_board->MessageInput) )
+		return false;
+	else if( key == SDLK_ESCAPE )
 		Remove();
 	else if( key == SDLK_TAB )
 	{
@@ -203,7 +206,7 @@ void GameMenuCloseButton::Clicked( Uint8 button )
 
 
 GameMenuDisconnectButton::GameMenuDisconnectButton( SDL_Rect *rect, Font *button_font )
-: LabelledButton( rect, button_font, (Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP)) ? "End Game" : "Disconnect", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
+: LabelledButton( rect, button_font, EndGame() ? "End Game" : "Disconnect", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
 {
 	Red = 0.f;
 	Green = 0.f;
@@ -223,9 +226,19 @@ void GameMenuDisconnectButton::Clicked( Uint8 button )
 	{
 		if( Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP) )
 			Raptor::Server->ChangeState( BattleTech::State::SETUP );
+		else if( EndGame() )
+			Raptor::Game->HandleCommand( "ready" );
 		else
 			Raptor::Game->Net.Disconnect();
 	}
+}
+
+
+bool GameMenuDisconnectButton::EndGame( void ) const
+{
+	if( Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP) )
+		return true;
+	return ((BattleTechGame*)( Raptor::Game ))->Admin() && (Raptor::Game->State == BattleTech::State::GAME_OVER);
 }
 
 

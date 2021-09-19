@@ -805,7 +805,7 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 	else if( cmd == "ready" )
 	{
 		uint8_t team_num = MyTeam();
-		if( team_num && (State >= Raptor::State::CONNECTED) )
+		if( (team_num && (State >= Raptor::State::CONNECTED)) || (State == BattleTech::State::GAME_OVER) )
 		{
 			Packet ready = Packet( BattleTech::Packet::READY );
 			ready.AddUChar( team_num );
@@ -867,6 +867,7 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 	else if( type == BattleTech::Packet::TEAM_TURN )
 	{
 		TeamTurn = packet->NextUChar();
+		ReadyAndAbleCache.clear();
 		
 		Mech *mech = GetMech( packet->NextUInt() );
 		if( mech )
@@ -875,7 +876,7 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 		uint32_t prev_selected = SelectedID;
 		
 		bool hotseat = Hotseat();
-		if( hotseat )
+		if( hotseat && MyTeam() )
 		{
 			std::string team_str = Num::ToString((int)TeamTurn);
 			Data.Players[ PlayerID ]->Properties[ "team" ] = team_str;
@@ -982,20 +983,35 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 void BattleTechGame::ChangeState( int state )
 {
 	TeamTurn = 0;
+	ReadyAndAbleCache.clear();
 	
-	if( (state == BattleTech::State::SETUP) || ((state >= Raptor::State::CONNECTED) && (State < Raptor::State::CONNECTED)) )
+	if( (State < BattleTech::State::SETUP) && (state >= BattleTech::State::SETUP) )
 	{
+		// Just connected.
 		Layers.RemoveAll();
 		Layers.Add( new HexBoard() );
-		if( Raptor::Server->IsRunning() )
-			Layers.Add( new GameMenu() );
-		else
-			Layers.Add( new SpawnMenu() );
+		if( state == BattleTech::State::SETUP )
+		{
+			if( Raptor::Server->IsRunning() )
+				Layers.Add( new GameMenu() );
+			else
+				Layers.Add( new SpawnMenu() );
+		}
+		Cfg.Settings[ "gunnery"  ] = "3";
+		Cfg.Settings[ "piloting" ] = "4";
 	}
 	else if( (State == BattleTech::State::SETUP) && (state > BattleTech::State::SETUP) )
 	{
+		// Initiate combat.
 		Layers.RemoveAll();
 		Layers.Add( new HexBoard() );
+	}
+	else if( (State > BattleTech::State::SETUP) && (state == BattleTech::State::SETUP) )
+	{
+		// Back to Setup.
+		Layers.RemoveAll();
+		Layers.Add( new HexBoard() );
+		Layers.Add( new SpawnMenu() );
 	}
 	
 	for( std::map<uint32_t,GameObject*>::iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
@@ -1080,6 +1096,27 @@ bool BattleTechGame::FF( void ) const
 		}
 	}
 	return (teams_alive.size() < 2);
+}
+
+
+bool BattleTechGame::Admin( void )
+{
+	if( Raptor::Server->IsRunning() )
+		return true;
+	
+	std::map<std::string,std::string>::const_iterator permissions = Raptor::Game->Data.Properties.find("permissions");
+	if( (permissions != Raptor::Game->Data.Properties.end()) && (permissions->second == "all") )
+		return true;
+	
+	Player *p = Data.GetPlayer( PlayerID );
+	if( p )
+	{
+		std::map<std::string,std::string>::const_iterator admin = p->Properties.find("admin");
+		if( admin != p->Properties.end() )
+			return Str::AsBool( admin->second.c_str() );
+	}
+	
+	return false;
 }
 
 

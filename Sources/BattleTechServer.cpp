@@ -358,14 +358,15 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					}
 					
 					// Immediately roll any PSRs caused by MASC damage.
-					for( uint8_t i = 0; i < mech->PSRs; i ++ )
+					while( mech->PSRs.size() )
 					{
+						std::string reason = mech->PSRs.front();
+						mech->PSRs.pop();
 						if( mech->Prone || mech->Destroyed() )
-							break;
-						mech->PilotSkillCheck();
+							continue;
+						mech->PilotSkillCheck( reason );
 						mech->AutoFall = "";
 					}
-					mech->PSRs = 0;
 					
 					SendEvents();
 					
@@ -529,9 +530,12 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				||  (speed == BattleTech::Move::MASC)
 				||  (speed == BattleTech::Move::JUMP) )
 				{
+					std::string speed_str = (speed == BattleTech::Move::JUMP) ? "jumping" : "running";
+					
 					if( mech->Gyro && mech->Gyro->Damaged )
-						mech->PSRs ++;
-					mech->PSRs += mech->DamagedCriticalCount( BattleTech::Equipment::HIP );
+						mech->PSRs.push( std::string("to avoid fall after ") + speed_str + std::string(" with Gyro damage") );
+					for( size_t i = 0; i < mech->DamagedCriticalCount( BattleTech::Equipment::HIP ); i ++ )
+						mech->PSRs.push( std::string("to avoid fall after ") + speed_str + std::string(" with Hip damage") );
 				}
 				
 				if( speed == BattleTech::Move::JUMP )
@@ -540,22 +544,25 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					{
 						if( mech->Locations[ i ].IntactCriticalCount( BattleTech::Equipment::HIP ) )
 						{
-							mech->PSRs += mech->Locations[ i ].DamagedCriticals.count( BattleTech::Equipment::UPPER_LEG_ACTUATOR );
-							mech->PSRs += mech->Locations[ i ].DamagedCriticals.count( BattleTech::Equipment::LOWER_LEG_ACTUATOR );
-							mech->PSRs += mech->Locations[ i ].DamagedCriticals.count( BattleTech::Equipment::FOOT_ACTUATOR );
+							size_t actuator_damage = mech->DamagedCriticalCount( BattleTech::Equipment::UPPER_LEG_ACTUATOR )
+							                       + mech->DamagedCriticalCount( BattleTech::Equipment::LOWER_LEG_ACTUATOR )
+							                       + mech->DamagedCriticalCount( BattleTech::Equipment::FOOT_ACTUATOR );
+							for( size_t i = 0; i < actuator_damage; i ++ )
+								mech->PSRs.push( std::string("to avoid fall after jumping with Actuator damage") );
 						}
 					}
 				}
 				
 				// Immediately roll any PSRs caused by running/jumping.
-				for( uint8_t i = 0; i < mech->PSRs; i ++ )
+				while( mech->PSRs.size() )
 				{
+					std::string reason = mech->PSRs.front();
+					mech->PSRs.pop();
 					if( mech->Prone || mech->Destroyed() )
-						break;
-					mech->PilotSkillCheck();
+						continue;
+					mech->PilotSkillCheck( reason );
 					mech->AutoFall = "";
 				}
-				mech->PSRs = 0;
 			}
 			
 			SendEvents();
@@ -615,7 +622,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			// Each attempt to stand generates 1 heat.
 			mech->Heat ++;
 			
-			if( mech->PilotSkillCheck() )
+			if( mech->PilotSkillCheck( "to stand" ) )
 				mech->Prone = false;
 			
 			SendEvents();
@@ -910,7 +917,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 						Events.push( e );
 						
 						if( damage )
-							lr.Loc->Damage( damage, hit_arc, lr.Crit );
+							lr.Damage( damage );
 						
 						if( target->Destroyed() )
 							break;
@@ -918,16 +925,11 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 						if( eq->Weapon->Narc )
 							lr.Loc->Narced = true;
 					}
-					else if( eq->Weapon->HitSound.length() )
+					else if( eq->Weapon->HitSound.length() && ! eq->Weapon->TAG )
 					{
 						Event e( target );
 						e.Effect = BattleTech::Effect::EXPLOSION;
 						e.Misc = eq->Weapon->Effect;
-						if( eq->Weapon->TAG )
-						{
-							e.Effect = BattleTech::Effect::BLINK;
-							e.Misc = BattleTech::RGB332::YELLOW;
-						}
 						e.Sound = eq->Weapon->HitSound;
 						if( eq->Weapon->Flamer )
 							e.Text = std::string("Adding ") + Num::ToString((int)(eq->Weapon->Flamer)) + std::string(" heat to target.");
@@ -941,19 +943,8 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					{
 						target->Tagged = true;
 						
-						const HexMap *map = Map();
-						ShotPath path = map->Path( from->X, from->Y, target->X, target->Y );
-						int target_dist = map->HexDist( from->X, from->Y, target->X, target->Y );
-						
-						int8_t spotted = from->Attack + path.Modifier + 1;
-						if( from->Sensors )
-							spotted += from->Sensors->Damaged * 2;
-						if( target->Prone )
-							spotted += (target_dist <= 1) ? -2 : 1;
-						
-						int8_t trees = path.PartialCover ? (path.Modifier - 1) : path.Modifier;
-						if( trees && (! ecm) && (target_dist <= from->ActiveProbeRange()) )
-							spotted --;
+						// NOTE: SpottingWithoutTAG should never be true here because WeaponsToFire is client-side, but check just in case. 
+						int8_t spotted = from->WeaponRollNeeded( target ) + 1 - (from->SpottingWithoutTAG() ? 1 : 0) - from->GunnerySkill - from->HeatFire;
 						
 						if( spotted < target->Spotted )
 							target->Spotted = spotted;
@@ -964,6 +955,17 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 						spot.AddUChar( eq_index | 0x80 );
 						spot.AddUInt( from->ID );
 						Net.SendAll( &spot );
+						
+						Event e( target );
+						/*
+						e.Effect = BattleTech::Effect::EXPLOSION;
+						e.Misc = BattleTech::Effect::TAG;
+						*/
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::YELLOW;
+						e.Sound = "w_lock.wav";
+						e.Text = std::string("Tagged ") + target->ShortName() + std::string(" for indirect fire (+") + Num::ToString(spotted) + std::string(").");
+						Events.push( e );
 					}
 				}
 			}
@@ -1019,10 +1021,13 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				e.Misc = BattleTech::Effect::TAG;
 				*/
 				e.Effect = BattleTech::Effect::BLINK;
-				e.Misc = BattleTech::RGB332::ORANGE;
+				e.Misc = BattleTech::RGB332::YELLOW;
 				e.Sound = "w_lock.wav";
 				e.Text = std::string("Spotted ") + target->ShortName() + std::string(" for indirect fire (+") + Num::ToString(spot_modifier) + std::string(").");
-				Events.push( e );
+				Packet events( BattleTech::Packet::EVENTS );
+				events.AddUShort( 1 );
+				e.AddToPacket( &events );
+				Net.SendAll( &events );
 			}
 		}
 		
@@ -1143,13 +1148,13 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				e2.Arc = hit_arc;
 				Events.push( e2 );
 				
-				lr.Loc->Damage( damage, hit_arc );
+				lr.Damage( damage );
 				
 				if( melee == BattleTech::Melee::KICK )
-					target->PSRs ++;
+					target->PSRs.push( "to avoid fall after being kicked" );
 			}
 			else if( melee == BattleTech::Melee::KICK )
-				from->PSRs ++;
+				from->PSRs.push( "to avoid fall after missing kick" );
 		}
 		
 		TookTurn( from );
@@ -1489,8 +1494,8 @@ double BattleTechServer::SendEvents( void )
 
 std::string BattleTechServer::TeamName( uint8_t team_num ) const
 {
-	std::map<std::string,std::string>::const_iterator name = Raptor::Game->Data.Properties.find( std::string("team") + Num::ToString((int)team_num) );
-	if( name != Raptor::Game->Data.Properties.end() )
+	std::map<std::string,std::string>::const_iterator name = Data.Properties.find( std::string("team") + Num::ToString((int)team_num) );
+	if( name != Data.Properties.end() )
 		return name->second;
 	
 	return std::string("Team ") + Num::ToString((int)team_num);
@@ -1518,20 +1523,5 @@ bool BattleTechServer::FF( void ) const
 			return true;
 	}
 	
-	/*
-	// Allow friendly fire after all enemies are eliminated.
-	// Commented-out to go to Game Over state when a friendly physical attack is possible.
-	std::set<uint8_t> teams_alive;
-	for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
-	{
-		if( obj_iter->second->Type() == BattleTech::Object::MECH )
-		{
-			const Mech *mech = (const Mech*) obj_iter->second;
-			if( ! mech->Destroyed() )
-				teams_alive.insert( mech->Team );
-		}
-	}
-	return (teams_alive.size() < 2);
-	*/
 	return false;
 }

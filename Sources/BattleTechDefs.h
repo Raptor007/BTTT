@@ -102,6 +102,7 @@ namespace BattleTech
 			BLACK      = 0x00,
 			WHITE      = 0xFF,
 			GREY       = 0x6E,
+			DARK_GREY  = 0x49,
 			RED        = 0xE0,
 			GREEN      = 0x1C,
 			BLUE       = 0x03,
