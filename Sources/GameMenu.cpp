@@ -5,6 +5,7 @@
 #include "GameMenu.h"
 
 #include "BattleTechGame.h"
+#include "GroupBox.h"
 #include "Num.h"
 #include "HexBoard.h"
 #include "SpawnMenu.h"
@@ -16,7 +17,7 @@ GameMenu::GameMenu( void )
 	
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	
-	Rect.w = 350;
+	Rect.w = 320;
 	Rect.x = game->Gfx.W/2 - Rect.w/2;
 	
 	Red = 0.4f;
@@ -24,49 +25,75 @@ GameMenu::GameMenu( void )
 	Blue = 0.4f;
 	Alpha = 0.75f;
 	
-	ItemFont = game->Res.GetFont( "ProFont.ttf", 24 );
+	ItemFont = game->Res.GetFont( "ProFont.ttf", 18 );
+	Font *small_font = game->Res.GetFont( "ProFont.ttf", 14 );
 	
-	SDL_Rect rect;
+	SDL_Rect rect, group_rect;
+	GroupBox *group = NULL;
 	
 	rect.x = 2;
 	rect.y = 2;
 	rect.w = 16;
 	rect.h = 16;
-	AddElement( new GameMenuCloseButton( &rect, game->Res.GetFont( "ProFont.ttf", 14 ) ) );
+	AddElement( new GameMenuCloseButton( &rect, small_font ) );
 	
-	rect.x = 20;
-	rect.w = Rect.w - rect.x * 2;
-	rect.y = 40;
-	rect.h = ItemFont->GetAscent() + 2;
+	group_rect.x = 10;
+	group_rect.y = ItemFont->GetHeight() + 7;
+	group_rect.w = Rect.w - group_rect.x * 2;
+	group_rect.h = 0;
+	
+	#define SPACING 7
+	
 	if( game->Admin() )
 	{
-		AddElement( new GameMenuCheckBox( &rect, ItemFont, "hotseat", "Hotseat Mode" ) );
-		rect.y += rect.h + 10;
+		group = new GroupBox( &group_rect, "Game Options", small_font );
+		AddElement( group );
+		
+		rect.x = 10;
+		rect.y = 20;
+		rect.w = group_rect.w - rect.x * 2;
+		rect.h = ItemFont->GetAscent() + 2;
+		
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "hotseat", "Hotseat Mode" ) );
+		rect.y += rect.h + SPACING;
+		
+		if( (Raptor::Game->State <= BattleTech::State::SETUP) || (Raptor::Game->State == BattleTech::State::GAME_OVER) )
+		{
+			group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "mech_limit", "Limit to 1 Mech Per Player", "1", "0" ) );
+			rect.y += rect.h + SPACING;
+		}
+		
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "engine_explosions", "Engine Explosions" ) );
+		rect.y += rect.h + SPACING;
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "prone_1arm", "One-Armed Prone Fire" ) );
+		rect.y += rect.h + SPACING;
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "enhanced_flamers", "Enhanced Flamers" ) );
+		rect.y += rect.h + SPACING;
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "enhanced_ams", "Enhanced Missile Defense" ) );
+		rect.y += rect.h + SPACING;
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "floating_crits", "Floating Criticals" ) );
+		rect.y += rect.h + SPACING;
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "skip_tag", "Skip TAG Phase" ) );
+		rect.y += rect.h + SPACING;
 		
 		if( Raptor::Game->State <= BattleTech::State::SETUP )
 		{
-			AddElement( new GameMenuCheckBox( &rect, ItemFont, "mech_limit", "1 Mech Per Player", "1", "0" ) );
-			rect.y += rect.h + 10;
-			AddElement( new GameMenuCheckBox( &rect, ItemFont, "engine_explosions", "Engine Explosions" ) );
-			rect.y += rect.h + 10;
-			AddElement( new GameMenuCheckBox( &rect, ItemFont, "prone_1arm", "One-Armed Prone Fire" ) );
-			rect.y += rect.h + 10;
-			AddElement( new GameMenuCheckBox( &rect, ItemFont, "enhanced_flamers", "Enhanced Flamers" ) );
-			rect.y += rect.h + 10;
-			AddElement( new GameMenuCheckBox( &rect, ItemFont, "enhanced_ams", "Enhanced Missile Defense" ) );
-			rect.y += rect.h + 10;
-			AddElement( new GameMenuCheckBox( &rect, ItemFont, "floating_crits", "Floating Criticals" ) );
-			rect.y += rect.h + 10;
-			AddElement( new GameMenuCheckBox( &rect, ItemFont, "skip_tag", "Skip TAG Phase" ) );
-			rect.y += rect.h + 10;
-			
 			rect.h = ItemFont->GetAscent() + 6;
-			AddElement( new GameMenuCommandButton( &rect, ItemFont, "map", "Randomize Map Terrain" ) );
-			rect.y += rect.h + 10;
+			group->AddElement( new GameMenuCommandButton( &rect, ItemFont, "map", "Randomize Map Terrain" ) );
+			rect.y += rect.h + SPACING;
 		}
 		
-		rect.y += 5;
+		group->SizeToElements();
+		group->Rect.w = group_rect.w;
+		group_rect.y += group->Rect.h + 10;
 	}
+	
+	group = new GroupBox( &group_rect, "Local Settings", small_font );
+	AddElement( group );
+	
+	rect.x = 10;
+	rect.y = 20;
+	rect.w = group_rect.w - rect.x * 2;
 	
 	rect.h = ItemFont->GetAscent() + 6;
 	GameMenuDropDown *event_speed = new GameMenuDropDown( &rect, ItemFont, "event_speed" );
@@ -75,9 +102,9 @@ GameMenu::GameMenu( void )
 	event_speed->AddItem( "1",   " Event Speed: Fast" );
 	event_speed->AddItem( "2",   " Event Speed: Ludicrous" );
 	event_speed->Update();
-	AddElement( event_speed );
+	group->AddElement( event_speed );
+	rect.y += rect.h + SPACING;
 	
-	rect.y += rect.h + 10;
 	GameMenuDropDown *s_volume = new GameMenuDropDown( &rect, ItemFont, "s_volume" );
 	s_volume->AddItem( "0",   " Sound Volume: Mute" );
 	s_volume->AddItem( "0.1", " Sound Volume: Lowest" );
@@ -88,53 +115,72 @@ GameMenu::GameMenu( void )
 	s_volume->AddItem( "1",   " Sound Volume: Loudest" );
 	s_volume->Update();
 	s_volume->Sound = Raptor::Game->Res.GetSound("i_target.wav");
-	AddElement( s_volume );
+	group->AddElement( s_volume );
+	rect.y += rect.h + SPACING;
 	
-	rect.y += rect.h + 20;
+	rect.h = ItemFont->GetAscent() + 2;
+	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "record_sheet_popup", "Show Record Sheet for Damage" ) );
+	rect.y += rect.h + SPACING;
+	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "show_ecm", "Show Active ECM Ranges" ) );
+	rect.y += rect.h + SPACING;
+	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "map_drag", "Left-Click to Drag Map" ) );
+	rect.y += rect.h + SPACING;
+	
+	group->SizeToElements();
+	group->Rect.w = group_rect.w;
+	
+	rect.y = group->Rect.y + group->Rect.h + 15;
 	rect.h = ItemFont->GetAscent() + 10;
 	rect.x = 10;
-	rect.w = (Rect.w - rect.x * 3) / 2;
-	AddElement( new GameMenuDisconnectButton( &rect, ItemFont ) );
-	
-	std::set<uint8_t> teams_with_mechs;
-	for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = game->Data.GameObjects.begin(); obj_iter != game->Data.GameObjects.end(); obj_iter ++ )
-	{
-		if( obj_iter->second->Type() == BattleTech::Object::MECH )
-		{
-			const Mech *mech = (const Mech*) obj_iter->second;
-			if( mech->Team && ! mech->Destroyed() )
-				teams_with_mechs.insert( mech->Team );
-		}
-	}
 	
 	DefaultButton = NULL;
-	rect.x += rect.x + rect.w;
 	
-	if( game->State <= BattleTech::State::SETUP )
+	if( game->Admin() && (game->State == BattleTech::State::GAME_OVER) )
 	{
-		DefaultButton = new GameMenuSpawnButton( &rect, ItemFont );
-		AddElement( DefaultButton );
+		rect.w = Rect.w - rect.x * 2;
 		
-		if( teams_with_mechs.count( game->MyTeam() ) && (teams_with_mechs.size() >= 2) )
-		{
-			rect.x = 10;
-			rect.w = Rect.w - rect.x * 2;
-			rect.y += rect.h + 10;
-			DefaultButton = new GameMenuCommandButton( &rect, ItemFont, "ready", "Initiate Combat" );
-			AddElement( DefaultButton );
-		}
+		DefaultButton = new GameMenuEndButton( &rect, ItemFont );
+		AddElement( DefaultButton );
 	}
 	else
 	{
-		DefaultButton = new GameMenuCloseButton( &rect, ItemFont );
-		DefaultButton->LabelText = "OK";
-		AddElement( DefaultButton );
+		rect.w = (Rect.w - rect.x * 3) / 2;
+		
+		if( Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP) )
+			AddElement( new GameMenuEndButton( &rect, ItemFont ) );
+		else
+			AddElement( new GameMenuDisconnectButton( &rect, ItemFont ) );
+		
+		rect.x += rect.x + rect.w;
+		
+		if( game->State <= BattleTech::State::SETUP )
+		{
+			DefaultButton = new GameMenuSpawnButton( &rect, ItemFont );
+			AddElement( DefaultButton );
+			
+			if( game->ReadyToBegin() )
+			{
+				rect.x = 10;
+				rect.w = Rect.w - rect.x * 2;
+				rect.y += rect.h + 10;
+				DefaultButton = new GameMenuCommandButton( &rect, ItemFont, "ready", "Initiate Combat" );
+				AddElement( DefaultButton );
+			}
+		}
+		else
+		{
+			DefaultButton = new GameMenuCloseButton( &rect, ItemFont );
+			DefaultButton->LabelText = "OK";
+			AddElement( DefaultButton );
+		}
 	}
 	
 	DefaultButton->Blue = 0.5f;
 	
 	Rect.h = rect.y + rect.h + 10;
 	Rect.y = game->Gfx.H/2 - Rect.h/2;
+	
+	Draggable = true;
 }
 
 
@@ -146,8 +192,8 @@ GameMenu::~GameMenu()
 void GameMenu::Draw( void )
 {
 	Window::Draw();
-	ItemFont->DrawText( "BTTT Game Settings", Rect.w/2 + 2, 7, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
-	ItemFont->DrawText( "BTTT Game Settings", Rect.w/2,     5, Font::ALIGN_TOP_CENTER );
+	ItemFont->DrawText( "BTTT: BattleTech TableTop", Rect.w/2 + 2, 7, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
+	ItemFont->DrawText( "BTTT: BattleTech TableTop", Rect.w/2,     5, Font::ALIGN_TOP_CENTER );
 }
 
 
@@ -161,7 +207,7 @@ bool GameMenu::KeyDown( SDLKey key )
 	else if( key == SDLK_TAB )
 	{
 		Remove();
-		Raptor::Game->Layers.Add( new SpawnMenu() );
+		return false;
 	}
 	else if( DefaultButton && ((key == SDLK_RETURN) || (key == SDLK_KP_ENTER)) )
 		DefaultButton->Clicked();
@@ -173,6 +219,9 @@ bool GameMenu::KeyDown( SDLKey key )
 
 bool GameMenu::MouseDown( Uint8 button )
 {
+	if( button == SDL_BUTTON_LEFT )
+		MoveToTop();
+	
 	return true;
 }
 
@@ -206,7 +255,7 @@ void GameMenuCloseButton::Clicked( Uint8 button )
 
 
 GameMenuDisconnectButton::GameMenuDisconnectButton( SDL_Rect *rect, Font *button_font )
-: LabelledButton( rect, button_font, EndGame() ? "End Game" : "Disconnect", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
+: LabelledButton( rect, button_font, "Disconnect", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
 {
 	Red = 0.f;
 	Green = 0.f;
@@ -223,22 +272,37 @@ GameMenuDisconnectButton::~GameMenuDisconnectButton()
 void GameMenuDisconnectButton::Clicked( Uint8 button )
 {
 	if( button == SDL_BUTTON_LEFT )
-	{
-		if( Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP) )
-			Raptor::Server->ChangeState( BattleTech::State::SETUP );
-		else if( EndGame() )
-			Raptor::Game->HandleCommand( "ready" );
-		else
-			Raptor::Game->Net.Disconnect();
-	}
+		Raptor::Game->Net.Disconnect();
 }
 
 
-bool GameMenuDisconnectButton::EndGame( void ) const
+// ---------------------------------------------------------------------------
+
+
+GameMenuEndButton::GameMenuEndButton( SDL_Rect *rect, Font *button_font )
+: LabelledButton( rect, button_font, "End Game", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
 {
-	if( Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP) )
-		return true;
-	return ((BattleTechGame*)( Raptor::Game ))->Admin() && (Raptor::Game->State == BattleTech::State::GAME_OVER);
+	Red = 0.f;
+	Green = 0.f;
+	Blue = 0.f;
+	Alpha = 0.75f;
+}
+
+
+GameMenuEndButton::~GameMenuEndButton()
+{
+}
+
+
+void GameMenuEndButton::Clicked( Uint8 button )
+{
+	if( button == SDL_BUTTON_LEFT )
+	{
+		if( Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP) )
+			Raptor::Server->ChangeState( BattleTech::State::SETUP );
+		else
+			Raptor::Game->HandleCommand( "ready" );
+	}
 }
 
 
@@ -316,9 +380,9 @@ GameMenuCheckBox::GameMenuCheckBox( SDL_Rect *rect, Font *font, std::string vari
 	TrueStr = true_str;
 	FalseStr = false_str;
 	
-	std::map<std::string,std::string>::const_iterator value = Raptor::Game->Data.Properties.find( variable );
-	if( value != Raptor::Game->Data.Properties.end() )
-		Checked = Str::AsBool( value->second );
+	SizeToText();
+	
+	SetChecked();
 }
 
 
@@ -327,7 +391,72 @@ GameMenuCheckBox::~GameMenuCheckBox()
 }
 
 
+void GameMenuCheckBox::Draw( void )
+{
+	CheckBox::Draw();
+	Raptor::Game->Gfx.DrawRect2D( 1, 1, Rect.h - 1, Rect.h - 1, 0, 0.f,0.f,0.f,1.f );
+	if( Checked )
+		LabelFont->DrawText( "X", (Rect.h+1)/2, (Rect.h+1)/2, Font::ALIGN_MIDDLE_CENTER );
+}
+
+
+void GameMenuCheckBox::SetChecked( void )
+{
+	std::map<std::string,std::string>::const_iterator value = Raptor::Game->Cfg.Settings.find( Variable );
+	if( value != Raptor::Game->Cfg.Settings.end() )
+	{
+		if( value->second == TrueStr )
+			Checked = true;
+		else if( value->second == FalseStr )
+			Checked = false;
+		else
+			Checked = Str::AsBool( value->second );
+	}
+	else
+		Checked = false;
+}
+
+
 void GameMenuCheckBox::Changed( void )
+{
+	Raptor::Game->Snd.Play( Raptor::Game->Res.GetSound("i_select.wav") );
+	Raptor::Game->Cfg.Settings[ Variable ] = Checked ? TrueStr : FalseStr;
+}
+
+
+// ---------------------------------------------------------------------------
+
+
+GameMenuSvCheckBox::GameMenuSvCheckBox( SDL_Rect *rect, Font *font, std::string variable, std::string label, std::string true_str, std::string false_str )
+: GameMenuCheckBox( rect, font, variable, label, true_str, false_str )
+{
+	SetChecked();
+}
+
+
+GameMenuSvCheckBox::~GameMenuSvCheckBox()
+{
+}
+
+
+void GameMenuSvCheckBox::SetChecked( void )
+{
+	std::map<std::string,std::string>::const_iterator value = Raptor::Game->Data.Properties.find( Variable );
+	if( value != Raptor::Game->Data.Properties.end() )
+	{
+		if( value->second == TrueStr )
+			Checked = true;
+		else if( value->second == FalseStr )
+			Checked = false;
+		else
+			Checked = Str::AsBool( value->second );
+	}
+	else
+		Checked = false;
+}
+
+
+void GameMenuSvCheckBox::Changed( void )
 {
 	Raptor::Game->Snd.Play( Raptor::Game->Res.GetSound("i_select.wav") );
 	
@@ -336,15 +465,6 @@ void GameMenuCheckBox::Changed( void )
 	info.AddString( Variable );
 	info.AddString( Checked ? TrueStr : FalseStr );
 	Raptor::Game->Net.Send( &info );
-}
-
-
-void GameMenuCheckBox::Draw( void )
-{
-	CheckBox::Draw();
-	Raptor::Game->Gfx.DrawRect2D( 1, 1, Rect.h - 1, Rect.h - 1, 0, 0.f,0.f,0.f,1.f );
-	if( Checked )
-		LabelFont->DrawText( "X", Rect.h/2, Rect.h/2, Font::ALIGN_MIDDLE_CENTER );
 }
 
 

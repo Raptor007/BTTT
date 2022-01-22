@@ -2,7 +2,7 @@
  *  Main.cpp
  */
 
-#define VERSION "0.9.1 Beta"
+#define VERSION "0.9.2 Beta"
 
 #include "BattleTechGame.h"
 #include "BattleTechServer.h"

@@ -571,11 +571,11 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 					cover = 2;
 				else if( (here_dist == 1) && ((hex->Height - here->Height) >= h1) )
 					cover = 2;
-				else if( (dest_dist == 1) && ((hex->Height - dest->Height) == 1) )
+				else if( (dest_dist == 1) && ((hex->Height - dest->Height) == 1) && ((dest->Height + h2) >= (here->Height + h1)) )
 					cover = (h2 == 1) ? 2 : 1;
 				
 				// Leg-mounted weapons cannot fire if the attacker has partial cover.
-				if( (here_dist == 1) && (rel_height >= 1) )
+				if( (here_dist == 1) && (rel_height >= 1) && ((here->Height + h1) >= (dest->Height + h2)) )
 					path.LegWeaponsBlocked = true;
 				
 				// Forests and standing mechs are 2 units tall.

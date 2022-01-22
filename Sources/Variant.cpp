@@ -71,12 +71,15 @@ void VariantEquipment::ReadFromPacket( Packet *packet )
 Variant::Variant( void )
 {
 	Tons = 0;
+	Era = 0;
+	BV2 = 0;
 	Clan = false;
 	Quad = false;
 	Walk = 0;
 	Jump = 0;
 	MASC = false;
 	TSM = false;
+	Supercharger = false;
 	Heatsinks = 0;
 	HeatsinksDouble = false;
 	memset( &Armor, 0, sizeof(Armor) );
@@ -102,7 +105,12 @@ bool Variant::Load( const char *filename )
 	fread( buf, 1, sizeof(buf), f );
 	fclose( f );
 	f = NULL;
-	if( strncmp( (char*) buf, "V5.00\1", 6 ) != 0 )
+	if( strncmp( (char*) buf, "V5.00", 5 ) != 0 )
+		return false;
+	
+	uint16_t design = 0;
+	Endian::CopyLittle( buf + 5, &design, 2 );
+	if( (design != 1) && (design != 2) && (design != 4) )
 		return false;
 	
 	Quad = buf[ 0x07 ] & 0x10;
@@ -114,12 +122,17 @@ bool Variant::Load( const char *filename )
 	ptr = HeavyMetal::hmstrcpy( name, ptr );
 	Var = name;
 	
+	Era = Endian::ReadLittle16( ptr );
+	BV2 = Endian::ReadLittle16( ptr + 8 );
+	
 	ptr = HeavyMetal::hmstrcpy( NULL, ptr + 30 );
 	
 	Clan = ptr[ 0 ] & 0x01;
+	bool clan_hs = Clan;
 	if( ptr[ 0 ] & 0xFE ) // Mixed tech base.
 	{
-		Clan = ptr[ 2 ] & 0x01;
+		Clan = ptr[ 2 ];
+		clan_hs = ptr[ 6 ];
 		ptr += 14;
 	}
 	const std::map< short, HMWeapon > *weapons = Clan ? &(game->ClanWeap) : &(game->ISWeap);
@@ -189,17 +202,34 @@ bool Variant::Load( const char *filename )
 			uint16_t crit_id = 0;
 			Endian::CopyLittle( ptr, &crit_id, 2 );
 			
+			std::vector<VariantEquipment>::iterator insert_at = Equipment.end();
+			
 			if( crit_id == BattleTech::Equipment::CASE )
 				CASE |= (1 << i); // Set CASE bit per location.
+			else if( crit_id == BattleTech::Equipment::CASE_II )
+				CASE |= (1 << (i+8));
 			
-			if( (crit_id == BattleTech::Equipment::ARTEMIS_IV_FCS) && prev )
+			else if( crit_id == BattleTech::Equipment::SUPERCHARGER )
+				Supercharger = true;
+			
+			else if( (crit_id == BattleTech::Equipment::ARTEMIS_IV_FCS) && prev )
+			{
 				prev->HasFCS = true;
+				for( std::vector<VariantEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
+				{
+					if( &*eq == prev )
+					{
+						insert_at = ++ eq;
+						break;
+					}
+				}
+			}
 			
 			if( HeavyMetal::HittableCrit(crit_id) )
 			{
-				size_t slots = HeavyMetal::CritSlots( crit_id, Clan, weapons );
+				size_t slots = HeavyMetal::CritSlots( crit_id, clan_hs, weapons );
 				VariantEquipment *equipment = NULL;
-				bool rear = (crit_id <= 400) && ptr[ 2 ];
+				bool rear = (crit_id <= 400) && (ptr[ 2 ] & 0x01);
 				
 				for( std::vector<VariantEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
 				{
@@ -212,8 +242,7 @@ bool Variant::Load( const char *filename )
 				
 				if( ! equipment )
 				{
-					Equipment.push_back( VariantEquipment(crit_id) );
-					equipment = &(Equipment.back());
+					equipment = &*(Equipment.insert( insert_at, VariantEquipment(crit_id) ));
 					if( crit_id > 400 )
 						equipment->Ammo = ptr[ 2 ];
 				}
@@ -263,6 +292,8 @@ void Variant::AddToPacket( Packet *packet ) const
 		flags |= 0x10;
 	if( Stealth )
 		flags |= 0x20;
+	if( Supercharger )
+		flags |= 0x40;
 	packet->AddUChar( flags );
 	
 	packet->AddUChar( Walk );
@@ -273,7 +304,7 @@ void Variant::AddToPacket( Packet *packet ) const
 	for( size_t i = 0; i < sizeof(Armor); i ++ )
 		packet->AddUChar( Armor[ i ] );
 	
-	packet->AddUChar( CASE );
+	packet->AddUShort( CASE );
 	
 	packet->AddUChar( Equipment.size() );
 	for( std::vector<VariantEquipment>::const_iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
@@ -295,6 +326,7 @@ void Variant::ReadFromPacket( Packet *packet )
 	TSM             = flags & 0x08;
 	HeatsinksDouble = flags & 0x10;
 	Stealth         = flags & 0x20;
+	Supercharger    = flags & 0x40;
 	
 	Walk = packet->NextUChar();
 	Jump = packet->NextUChar();
@@ -304,7 +336,7 @@ void Variant::ReadFromPacket( Packet *packet )
 	for( size_t i = 0; i < sizeof(Armor); i ++ )
 		Armor[ i ] = packet->NextUChar();
 	
-	CASE = packet->NextUChar();
+	CASE = packet->NextUShort();
 	
 	Equipment.clear();
 	size_t eq_count = packet->NextUChar();
@@ -320,12 +352,14 @@ std::string Variant::Details( void ) const
 	details += std::string("\n") + Num::ToString(Tons) + std::string("-Ton");
 	details += Clan ? " Clan" : " Inner Sphere";
 	details += Quad ? " Quad" : " Mech";
+	details += std::string(" [") + Num::ToString(Era) + std::string("]");
+	
+	//details += std::string("\nBV2: ") + Num::ToString(BV2);
 	
 	uint16_t total_armor = 0;
 	for( size_t i = 0; i < BattleTech::Loc::COUNT + 3; i ++ )
 		total_armor += Armor[ i ];
 	details += std::string("\nTotal Armor ") + Num::ToString(total_armor);
-	//details += std::string(", Structure ") + Num::ToString(total_structure);
 	
 	details += std::string("\nWalk ") + Num::ToString(Walk);
 	if( TSM )
@@ -333,8 +367,13 @@ std::string Variant::Details( void ) const
 	details += std::string(", Run ") + Num::ToString(ceilf(Walk*1.5f));
 	if( TSM )
 		details += std::string(" (") + Num::ToString(ceilf((Walk+2)*1.5f)) + std::string(")");
-	if( MASC )
-		details += std::string(" [") + Num::ToString(Walk*2) + std::string("]");
+	if( MASC || Supercharger )
+	{
+		details += std::string(" [") + Num::ToString(Walk*2);
+		if( MASC && Supercharger )
+			details += std::string("-") + Num::ToString(ceilf(Walk*2.5f));
+		details += std::string("]");
+	}
 	details += std::string(", Jump ") + Num::ToString(Jump);
 	
 	details += std::string("\nHeatsinks ") + Num::ToString(Heatsinks);

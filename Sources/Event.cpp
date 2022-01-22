@@ -24,6 +24,10 @@ Event::Event( const Mech *m1, const Mech *m2 )
 	HP = 0;
 	Eq = 0xFF;
 	
+	Stat = BattleTech::Stat::NONE;
+	Val1 = 0;
+	Val2 = 0;
+	
 	if( m1 )
 	{
 		MechID = m1->ID;
@@ -167,6 +171,116 @@ void Event::ShowCritHit( const MechEquipment *eq, int8_t loc )
 }
 
 
+void Event::ShowEquipment( const MechEquipment *eq )
+{
+	uint8_t damage_and_flags = eq->Damaged;
+	if( eq->Jammed )
+		damage_and_flags |= 0x80;
+	ShowStat( BattleTech::Stat::EQUIPMENT, eq->Index(), damage_and_flags );
+}
+
+
+void Event::ShowAmmo( const MechEquipment *ammo )
+{
+	ShowStat( BattleTech::Stat::AMMO, ammo->Index(), std::min<uint16_t>( 255, ammo->Ammo ) );
+}
+
+
+void Event::ShowStat( int8_t stat, int8_t val1, int8_t val2 )
+{
+	Stat = stat;
+	Val1 = val1;
+	Val2 = val2;
+}
+
+
+void Event::ShowStat( int8_t stat )
+{
+	ShowStat( (Mech*) Raptor::Server->Data.GetObject( MechID ), stat );
+}
+
+
+void Event::ShowStat( Mech *mech, int8_t stat )
+{
+	if( ! mech )
+		return;
+	else if( stat == BattleTech::Stat::NONE )
+		ShowStat( stat, 0, 0 );
+	else if( stat == BattleTech::Stat::SHUTDOWN )
+		ShowStat( stat, mech->Shutdown ? 1 : 0 );
+	else if( stat == BattleTech::Stat::PILOT )
+		ShowStat( stat, mech->PilotDamage, mech->Unconscious );
+	else if( stat == BattleTech::Stat::HEAT )
+		ShowStat( stat, mech->Heat, mech->HeatMove | (mech->HeatFire << 4) );
+	else if( stat == BattleTech::Stat::HEAT_MASC_SC )
+		ShowStat( stat, mech->Heat, mech->MASCTurns | (mech->SuperchargerTurns << 4) );
+	else if( stat == BattleTech::Stat::HEATSINKS )
+		ShowStat( stat, mech->HeatDissipation );
+	else if( stat == BattleTech::Stat::ACTIVE_SPECIAL )
+		ShowStat( stat, mech->ActiveStealth ? 1 : 0, mech->ActiveTSM ? 1 : 0 );
+	else if( stat == BattleTech::Stat::NARC )
+	{
+		uint8_t narc = 0;
+		for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
+			if( mech->Locations[ i ].Narced )
+				narc |= (1 << i);
+		ShowStat( stat, narc );
+	}
+}
+
+
+void Event::ReadStat( Mech *mech ) const
+{
+	if( ! mech )
+		return;
+	else if( (Stat == BattleTech::Stat::AMMO) && (Val1 >= 0) && ((size_t) Val1 < mech->Equipment.size()) )
+	{
+		MechEquipment *eq = &(mech->Equipment.at( Val1 ));
+		const uint8_t *val2 = (const uint8_t*) &Val2;
+		eq->Ammo = *val2;
+	}
+	else if( (Stat == BattleTech::Stat::EQUIPMENT) && (Val1 >= 0) && ((size_t) Val1 < mech->Equipment.size()) )
+	{
+		MechEquipment *eq = &(mech->Equipment.at( Val1 ));
+		eq->Jammed  = Val2 & 0x80;
+		eq->Damaged = Val2 & 0x7F;
+	}
+	else if( Stat == BattleTech::Stat::SHUTDOWN )
+		mech->Shutdown = Val1;
+	else if( Stat == BattleTech::Stat::PILOT )
+	{
+		mech->PilotDamage = Val1;
+		mech->Unconscious = Val2;
+	}
+	else if( Stat == BattleTech::Stat::HEAT )
+	{
+		mech->Heat = Val1;
+		mech->HeatMove =  Val2 & 0x0F;
+		mech->HeatFire = (Val2 & 0xF0) >> 4;
+	}
+	else if( Stat == BattleTech::Stat::HEAT_MASC_SC )
+	{
+		mech->Heat = Val1;
+		mech->MASCTurns         =  Val2 & 0x0F;
+		mech->SuperchargerTurns = (Val2 & 0xF0) >> 4;
+	}
+	else if( Stat == BattleTech::Stat::HEAT_ADD )
+		mech->Heat += Val1;
+	else if( Stat == BattleTech::Stat::HEATSINKS )
+		mech->HeatDissipation = Val1;
+	else if( Stat == BattleTech::Stat::ACTIVE_SPECIAL )
+	{
+		mech->ActiveStealth = Val1;
+		mech->ActiveTSM = Val2;
+	}
+	else if( Stat == BattleTech::Stat::NARC )
+	{
+		for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
+			mech->Locations[ i ].Narced = Val1 & (1 << i);
+	}
+}
+
+
 void Event::AddToPacket( Packet *packet ) const
 {
 	packet->AddFloat( Duration );
@@ -189,6 +303,13 @@ void Event::AddToPacket( Packet *packet ) const
 		packet->AddUChar( HP );
 	if( CriticalHit )
 		packet->AddUChar( Eq );
+	
+	packet->AddUChar( Stat );
+	if( Stat )
+	{
+		packet->AddChar( Val1 );
+		packet->AddChar( Val2 );
+	}
 }
 
 
@@ -216,4 +337,11 @@ void Event::ReadFromPacket( Packet *packet )
 		HP = packet->NextUChar();
 	if( CriticalHit )
 		Eq = packet->NextUChar();
+	
+	Stat = packet->NextUChar();
+	if( Stat )
+	{
+		Val1 = packet->NextChar();
+		Val2 = packet->NextChar();
+	}
 }

@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|            0.9.1 Beta (2021-09-19)            |
+|            0.9.2 Beta (2022-01-22)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -27,7 +27,7 @@ To play across the internet, the host must map TCP port 3050.
 
 Game Settings / Optional Rules:
 * Hotseat Mode: All players take their turns on the same computer.
-* 1 Mech Per Player: Limit to one Mech per connected player, or one per team in Hotseat.
+* Limit to 1 Mech Per Player: One Mech per connected player, or one per team in Hotseat.
 * Engine Explosions: Destroyed engine explodes on roll of 10+. [BattleMech Manual p.47]
 * One-Armed Prone Fire: Prone with 1 arm may still fire torso. [BattleMech Manual p.30]
 * Enhanced Flamers: Flamers deal both heat and damage. [BattleMech Manual p.99]
@@ -50,7 +50,7 @@ Gameplay Controls:
 * Backspace will undo your movement one step at a time.
 * Enter submits your turn (on any phase).
 * Right-click to aim during the TAG, Weapon Attack, or Physical Attack phases.
-* WASD moves the map, R/F zooms in/out, Q resets view, and E zooms to active area.
+* WASD moves the map, R/F zooms in/out, Q/Home resets view, and E zooms to active area.
 
 Walk, run, MASC, or jump will be automatically chosen based on how far you move and if
 you use any reverse movement.  If you want to jump when the move could be walked or run,
@@ -63,14 +63,13 @@ You can create custom variants using HeavyMetal Pro and add them to the Mechs di
   http://www.heavymetalpro.com/HMPro_Features.htm
 
 Known Issues:
-* Run/walk speed should be declared before making stand attempts.
 * Dropping to prone move is not implemented; Mechs can only go prone by falling.
 * Cannot choose HE or ER ammo for ATM.
 * Cannot choose cluster ammo for LB-X AC.
 * Multiple attack target selection is not implemented.
 * Called/aimed shots are not implemented.
 * Club, push, charge, and DFA physical attacks are not implemented.
-* CASE II is only implemented as CASE, without the additional features.
+* CASE II should make an additional roll of 8+ to check any critical hits.
 * Reactive/Reflective/Hardened Armor are not implemented.
 * Stealth Armor System cannot be turned off (but does disable when ECM is damaged).
 * Streak passing through any Angel ECM (not just target's) should roll on cluster table.
@@ -80,6 +79,7 @@ Known Issues:
 * Caseless AC rolling 2 should jam and crit itself; instead it explodes.
 * Hyper-velocity AC rolling 2 should destroy all of its crit slots.
 * Engine explosion check should only happen if the engine takes 4 critical hits.
+* MASC is always preferred over Supercharger with both equipped; it should be a choice.
 * Arrow IV homing missile rules are not implemented.
 * Quadrupedal Mech rules are only partially implemented.
 * Coolant Pods are not implemented.
@@ -101,6 +101,21 @@ Troubleshooting:
 * When starting the game, "Loading Mechs" is sometimes very slow.
  - Move BTTT to an SSD or remove some files from the Mechs folder.
 
+Version 0.9.2 Beta (2022-01-22):
+* Added Record Sheet info windows.  Press I to view for selected Mech, O for target.
+* Run/walk is now declared when standing.  Up arrow to stand running, down for walking.
+* Fixed Mechs occasionally being unable to do some actions on the first turn of a phase.
+* Fixed partial cover so it no longer applies downhill. [BattleMech Manual p.26]
+* Fixed damage from Engine Explosion to use groups of 5 instead of one big hit.
+* Fixed some issues when connecting to a game in progress, such as loud startup sound.
+* Fixed wrong value shown in "O" of "GATOR" when target has movement defense bonus.
+* Fixed Right Leg sometimes being called "Right Arm".
+* Fixed pilot damage heat thresholds for torso cockpit when life support is damaged.
+* Fixed run with failed MASC roll allowing reverse or jump moves and not adding 2 heat.
+* Implemented Engine Supercharger. [Tactical Operations p.345]
+* Mostly implemented CASE II, Laser/Compact Heat Sinks, and Mechanical Jump Boosters.
+* Improved compatibility with some HeavyMetal Pro variant files.
+* Other small improvements such as draggable windows and middle-click to drag the map.
 Version 0.9.1 Beta (2021-09-19):
 * Chat appears on screen, and you can press T to type a message.
 * Improved map graphics to look like alpine/grasslands, and other minor visual tweaks.

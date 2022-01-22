@@ -8,6 +8,7 @@
 #include <cmath>
 #include <dirent.h>
 #include <fstream>
+#include <algorithm>
 #include "BattleTechDefs.h"
 #include "BattleTechServer.h"
 #include "FirstLoadScreen.h"
@@ -42,21 +43,27 @@ void BattleTechGame::SetDefaults( void )
 {
 	RaptorGame::SetDefaults();
 	
+	Gfx.AspectRatio = 1.5f;
 	Cfg.Settings[ "g_fullscreen" ] = "false";
-	Cfg.Settings[ "g_res_windowed_x" ] = "1366";
-	Cfg.Settings[ "g_res_windowed_y" ] = "900";
+	Cfg.Settings[ "g_res_windowed_x" ] = "0";
+	Cfg.Settings[ "g_res_windowed_y" ] = "0";
 	Cfg.Settings[ "g_fsaa" ] = "4";
 	Cfg.Settings[ "g_shader_enable" ] = "false";
 	Cfg.Settings[ "s_volume" ] = "0.3";
 	Cfg.Settings[ "sv_port" ] = "3050";
 	Cfg.Settings[ "host_address" ] = "www.raptor007.com:3050";
 	
-	Cfg.Settings[ "name" ] = "Cadet";
+	if( Cfg.Settings[ "name" ] == "Name" )
+		Cfg.Settings[ "name" ] = "Cadet";
+	
 	Cfg.Settings[ "mech" ] = " 60T [C] Mad Dog (Vulture)  Prime";
 	Cfg.Settings[ "piloting" ] = "4";
 	Cfg.Settings[ "gunnery"  ] = "3";
 	
 	Cfg.Settings[ "event_speed" ] = "0.5";
+	Cfg.Settings[ "show_ecm" ] = "true";
+	Cfg.Settings[ "record_sheet_popup" ] = "true";
+	Cfg.Settings[ "map_drag" ] = "false";
 }
 
 
@@ -328,11 +335,19 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 	Mech *mech = e->MechID ? (Mech*) Data.GetObject( e->MechID ) : NULL;
 	if( mech && (mech->Type() == BattleTech::Object::MECH) )
 	{
+		// Events may change Mech readiness.
+		ReadyAndAbleCache.clear();
+		
+		e->ReadStat( mech );
+		
 		if( e->HealthUpdate || e->CriticalHit )
 		{
 			mech->HitClock.Reset();
 			mech->Locations[ e->Loc ].HitClock.Sync( &(mech->HitClock) );
 			mech->Locations[ e->Loc ].HitWhere = e->Arc;
+			
+			if( Cfg.SettingAsBool("record_sheet_popup") )
+				ShowRecordSheet( mech, std::max<double>( 5., duration ) );
 		}
 		
 		if( e->HealthUpdate )
@@ -346,7 +361,7 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				{
 					std::vector<MechEquipment*>::iterator crit = loc->CriticalSlots.begin();
 					(*crit)->Damaged ++;
-					loc->DamagedCriticals.insert( (*crit)->ID );
+					loc->DamagedCriticals.insert( *crit );
 					loc->CriticalSlots.erase( crit );
 				}
 				if( had_structure && (e->Loc != BattleTech::Loc::CENTER_TORSO) )
@@ -366,7 +381,7 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				if( (*crit) == eq )
 				{
 					eq->Damaged ++;
-					loc->DamagedCriticals.insert( eq->ID );
+					loc->DamagedCriticals.insert( *crit );
 					loc->CriticalSlots.erase( crit );
 					break;
 				}
@@ -384,6 +399,8 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				duration = 0.3;
 			else if( e->Effect == BattleTech::Effect::TORSO_TWIST )
 				duration = 0.2;
+			else if( (e->Effect == BattleTech::Effect::JUMP) && (State == BattleTech::State::SETUP) )
+				duration = 0.2;
 			mech->Animate( duration, e->Effect );
 			mech->X = e->X;
 			mech->Y = e->Y;
@@ -394,8 +411,8 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				mech->TorsoTwist = 0;
 				mech->ProneFire = BattleTech::Loc::UNKNOWN;
 			}
-			if( (e->Effect == BattleTech::Effect::FALL)
-			||  (e->Effect == BattleTech::Effect::JUMP) )
+			else if( (e->Effect == BattleTech::Effect::FALL)
+			||       (e->Effect == BattleTech::Effect::JUMP) )
 			{
 				HexMap *map = Map();
 				Pos3D pos = map->Center( e->X, e->Y );
@@ -421,6 +438,8 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 					}
 				}
 			}
+			else if( e->Effect == BattleTech::Effect::STAND )
+				mech->StandAttempts ++;
 		}
 		else if( e->Effect == BattleTech::Effect::SMOKE )
 		{
@@ -590,9 +609,14 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 			Vec3D vec = pos2 - pos1;
 			if( miss )
 			{
+				bool left = (e->Loc == BattleTech::Loc::LEFT_ARM) || (e->Loc == BattleTech::Loc::LEFT_TORSO) || (e->Loc == BattleTech::Loc::LEFT_LEG);
+				if( e->Loc == BattleTech::Loc::CENTER_TORSO )
+					left = Rand::Bool();
+				if( mech->ArmsFlipped || (e->Loc == mech->TurnedArm) )
+					left = ! left;
 				Vec3D offset( &vec );
 				offset.ScaleTo( Rand::Double( 0.45, 0.5 ) );
-				offset.RotateAround( &(Raptor::Game->Cam.Fwd), Rand::Bool() ? Rand::Double( 50., 130. ) : Rand::Double( -130., -50. ) );
+				offset.RotateAround( &(Raptor::Game->Cam.Fwd), left ? Rand::Double( 50., 130. ) : Rand::Double( -130., -50. ) );
 				vec += offset;
 			}
 			double dist = vec.Length();
@@ -745,6 +769,58 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 }
 
 
+void BattleTechGame::ShowRecordSheet( const Mech *mech, double duration )
+{
+	// Remove pop-up record sheets for any other Mechs.
+	uint32_t mech_id = mech ? mech->ID : 0;
+	for( std::list<Layer*>::reverse_iterator layer_iter = Layers.Layers.rbegin(); layer_iter != Layers.Layers.rend(); layer_iter ++ )
+	{
+		if( (! (*layer_iter)->Removed) && ((*layer_iter)->Name == "RecordSheet") )
+		{
+			RecordSheet *rs = (RecordSheet*) *layer_iter;
+			if( rs->AutoHide && (rs->MechID != mech_id) )
+				rs->Remove();
+		}
+	}
+	
+	RecordSheet *rs = GetRecordSheet( mech );
+	
+	if( ! rs )
+	{
+		if( ! mech )
+			return;
+		rs = new RecordSheet( mech );
+		Raptor::Game->Layers.Add( rs );
+		rs->AutoHide = duration;
+	}
+	else if( rs->AutoHide && ! duration )
+		rs->AutoHide = false;
+	
+	rs->Lifetime.CountUpToSecs = duration;
+	rs->Lifetime.Reset();
+	rs->MoveToTop();
+	
+	if( rs->AutoHide )
+		rs->AutoPosition();
+}
+
+
+RecordSheet *BattleTechGame::GetRecordSheet( const Mech *mech )
+{
+	for( std::list<Layer*>::reverse_iterator layer_iter = Layers.Layers.rbegin(); layer_iter != Layers.Layers.rend(); layer_iter ++ )
+	{
+		if( (! (*layer_iter)->Removed) && ((*layer_iter)->Name == "RecordSheet") )
+		{
+			RecordSheet *rs = (RecordSheet*) *layer_iter;
+			if( (! mech) || (rs->MechID == mech->ID) )
+				return rs;
+		}
+	}
+	
+	return NULL;
+}
+
+
 bool BattleTechGame::HandleEvent( SDL_Event *event )
 {
 	return false;
@@ -816,6 +892,30 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 	}
 	else if( cmd == "go" )
 		Cfg.Command( "sv state ++" );
+	else if( cmd == "reload" )
+	{
+		bool reload_mechtex = true;
+		bool reload_mechs = true;
+		if( params && params->size() )
+		{
+			reload_mechtex = (std::find( params->begin(), params->end(), "mechtex" ) != params->end());
+			reload_mechs   = (std::find( params->begin(), params->end(), "mechs"   ) != params->end());
+		}
+		if( reload_mechtex )
+		{
+			LoadMechTex();
+			for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
+			{
+				if( obj_iter->second->Type() == BattleTech::Object::MECH )
+					((Mech*)( obj_iter->second ))->InitTex();
+			}
+		}
+		if( reload_mechs )
+		{
+			Variants.clear();
+			LoadVariants( Res.Find("Mechs") );
+		}
+	}
 	else
 		return RaptorGame::HandleCommand( cmd, params );
 	return true;
@@ -1003,8 +1103,14 @@ void BattleTechGame::ChangeState( int state )
 	else if( (State == BattleTech::State::SETUP) && (state > BattleTech::State::SETUP) )
 	{
 		// Initiate combat.
-		Layers.RemoveAll();
-		Layers.Add( new HexBoard() );
+		HexBoard *hex_board = (HexBoard*) Layers.Find("HexBoard");
+		if( hex_board )
+			hex_board->RemoveSetupMenus();
+		else
+		{
+			Layers.RemoveAll();
+			Layers.Add( new HexBoard() );
+		}
 	}
 	else if( (State > BattleTech::State::SETUP) && (state == BattleTech::State::SETUP) )
 	{
@@ -1085,17 +1191,7 @@ bool BattleTechGame::FF( void ) const
 	}
 	
 	// Allow friendly fire after all enemies are eliminated.
-	std::set<uint8_t> teams_alive;
-	for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
-	{
-		if( obj_iter->second->Type() == BattleTech::Object::MECH )
-		{
-			const Mech *mech = (const Mech*) obj_iter->second;
-			if( ! mech->Destroyed() )
-				teams_alive.insert( mech->Team );
-		}
-	}
-	return (teams_alive.size() < 2);
+	return TeamsAlive() < 2;
 }
 
 
@@ -1120,6 +1216,28 @@ bool BattleTechGame::Admin( void )
 }
 
 
+bool BattleTechGame::ReadyToBegin( void )
+{
+	return (TeamsAlive() >= 2) && MyTeam(); // && MyMech(); // FIXME
+}
+
+
+uint8_t BattleTechGame::TeamsAlive( void ) const
+{
+	std::set<uint8_t> teams_alive;
+	for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
+	{
+		if( obj_iter->second->Type() == BattleTech::Object::MECH )
+		{
+			const Mech *mech = (const Mech*) obj_iter->second;
+			if( mech->Team && ! mech->Destroyed() )
+				teams_alive.insert( mech->Team );
+		}
+	}
+	return teams_alive.size();
+}
+
+
 uint8_t BattleTechGame::MyTeam( void )
 {
 	Player *p = Data.GetPlayer( PlayerID );
@@ -1131,6 +1249,16 @@ uint8_t BattleTechGame::MyTeam( void )
 	}
 	
 	return 0;
+}
+
+
+std::string BattleTechGame::TeamName( uint8_t team_num ) const
+{
+	std::map<std::string,std::string>::const_iterator name = Data.Properties.find( std::string("team") + Num::ToString((int)team_num) );
+	if( name != Data.Properties.end() )
+		return name->second;
+	
+	return "";
 }
 
 
@@ -1152,6 +1280,13 @@ Mech *BattleTechGame::SelectedMech( void )
 Mech *BattleTechGame::TargetMech( void )
 {
 	return GetMech( TargetID );
+}
+
+
+void BattleTechGame::GetPixel( const Pos3D *pos, int *x, int *y )
+{
+	*x = (int)((pos->X - X) * Zoom) + Gfx.W/2;
+	*y = (int)((pos->Y - Y) * Zoom) + Gfx.H/2;
 }
 
 

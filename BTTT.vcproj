@@ -1097,6 +1097,14 @@
 				>
 			</File>
 			<File
+				RelativePath=".\Sources\RecordSheet.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\Sources\RecordSheet.h"
+				>
+			</File>
+			<File
 				RelativePath=".\Sources\Roll.cpp"
 				>
 			</File>

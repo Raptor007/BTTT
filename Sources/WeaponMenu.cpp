@@ -9,7 +9,7 @@
 #include "HexBoard.h"
 
 
-WeaponMenu::WeaponMenu( HexBoard *container )
+WeaponMenu::WeaponMenu( void )
 {
 	Name = "WeaponMenu";
 	
@@ -27,7 +27,6 @@ WeaponMenu::WeaponMenu( HexBoard *container )
 	
 	ItemFont = Raptor::Game->Res.GetFont( "ProFont.ttf", 18 );
 	
-	Container = container;
 	Update();
 }
 
@@ -61,7 +60,10 @@ void WeaponMenu::Draw( void )
 
 bool WeaponMenu::KeyDown( SDLKey key )
 {
-	if( key == SDLK_ESCAPE )
+	HexBoard *hex_board = (HexBoard*) Raptor::Game->Layers.Find("HexBoard");
+	if( hex_board && (hex_board->Selected == hex_board->MessageInput) )
+		return false;
+	else if( key == SDLK_ESCAPE )
 		Remove();
 	else
 		return false;
@@ -71,7 +73,10 @@ bool WeaponMenu::KeyDown( SDLKey key )
 
 bool WeaponMenu::MouseDown( Uint8 button )
 {
-	return true;
+	MoveToTop();
+	
+	Draggable = (button == SDL_BUTTON_LEFT);
+	return Window::MouseDown( button );
 }
 
 
@@ -114,7 +119,7 @@ void WeaponMenu::UpdateWeapons( void )
 	AddElement( new WeaponMenuCloseButton( &rect, ItemFont ) );
 	
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-	HexBoard *hex_board = (HexBoard*) Container;
+	HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
 	Mech *target = game->TargetMech();
 	
 	rect.h = ItemFont->GetHeight();
@@ -184,8 +189,7 @@ void WeaponMenu::UpdateWeapons( void )
 		line_element --;
 		rect.x += 230;
 		
-		if( eq->Location )
-			AddElement( new Label( &rect, eq->Location->ShortName, ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		AddElement( new Label( &rect, eq->Location ? eq->Location->ShortName : "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
 		rect.x += 40;
 		
 		AddElement( new Label( &rect, eq->Weapon->HeatStr, ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
@@ -292,9 +296,21 @@ void WeaponMenu::UpdateWeapons( void )
 		AddElement( new Label( &rect, "Stealth Armor System", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
 		std::list<Layer*>::iterator line_element = Elements.end();
 		line_element --;
-		rect.x += 270;
+		rect.x += 230;
 		
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
 		AddElement( new Label( &rect, "10", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 80;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
 		
 		if( (game->State != BattleTech::State::WEAPON_ATTACK) || ! Selected->ActiveStealth )
 		{
@@ -318,11 +334,32 @@ void WeaponMenu::UpdateWeapons( void )
 	AddElement( new Label( &rect, "Spot for Indirect Fire", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
 	std::list<Layer*>::iterator line_element = Elements.end();
 	line_element --;
-	rect.x = Rect.w - 30;
+	rect.x += 230;
+	
+	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+	rect.x += 40;
+	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+	rect.x += 40;
+	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+	rect.x += 80;
+	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+	rect.x += 40;
+	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+	rect.x += 40;
+	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+	rect.x += 40;
+	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+	
 	if( hex_board->Path.LineOfSight && (game->State == BattleTech::State::WEAPON_ATTACK) && ! Selected->FiredTAG() )
 	{
+		rect.x = Rect.w - 60;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		
 		if( Selected->Team == game->MyTeam() )
+		{
+			rect.x = Rect.w - 30;
 			AddElement( new WeaponMenuCheckBox( &rect, ItemFont, Selected, 0xFF, Selected->WeaponsToFire[ 0xFF ] ) );
+		}
 	}
 	else if( hex_board->Path.LineOfSight && (game->State == BattleTech::State::TAG) )
 		;
@@ -338,7 +375,7 @@ void WeaponMenu::UpdateWeapons( void )
 	{
 		gato_other = Selected->WeaponRollNeeded( target, &(hex_board->Path) );
 		if( gato_other < 99 )
-			gato_other -= Selected->GunnerySkill + Selected->Attack - (target ? target->Defense : 0);
+			gato_other -= Selected->GunnerySkill + Selected->Attack + (target ? target->Defense : 0);
 	}
 	else if( target )
 		gato_other = target->Spotted;
@@ -450,7 +487,7 @@ void WeaponMenu::UpdateMelee( void )
 	rect.x = 10;
 	rect.y += rect.h + 5;
 	
-	HexBoard *hex_board = (HexBoard*) Container;
+	HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
 	
 	uint8_t index = 0;
 	for( std::set<MechMelee>::iterator melee = hex_board->PossibleMelee.begin(); melee != hex_board->PossibleMelee.end(); melee ++ )
@@ -561,7 +598,7 @@ void WeaponMenu::UpdateHeatTotal( void )
 		return;
 	}
 	
-	HexBoard *hex_board = (HexBoard*) Container;
+	HexBoard *hex_board = (HexBoard*) Raptor::Game->Layers.Find("HexBoard");
 	int shot_heat = 0;
 	
 	for( std::map<uint8_t,uint8_t>::const_iterator weap = Selected->WeaponsToFire.begin(); weap != Selected->WeaponsToFire.end(); weap ++ )
@@ -658,7 +695,7 @@ void WeaponMenu::SetWeapon( uint8_t index, uint8_t count )
 	if( index == 0xFF )
 	{
 		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-		HexBoard *hex_board = (HexBoard*) Container;
+		HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
 		hex_board->UpdateWeaponsInRange( Selected, game->TargetMech() );
 		need_update = true;
 	}
@@ -694,7 +731,7 @@ void WeaponMenu::SetMelee( uint8_t index, uint8_t count )
 	if( ! Selected )
 		return;
 	
-	HexBoard *hex_board = (HexBoard*) Container;
+	HexBoard *hex_board = (HexBoard*) Raptor::Game->Layers.Find("HexBoard");
 	
 	std::vector<const MechMelee*> possible;
 	for( std::set<MechMelee>::const_iterator melee = hex_board->PossibleMelee.begin(); melee != hex_board->PossibleMelee.end(); melee ++ )

@@ -417,7 +417,8 @@ std::string HeavyMetal::CritName( short wid, const std::map< short, HMWeapon > *
 		return "Hatchet";
 	if( wid == 0x12 )
 		return "Targeting Computer";
-	
+	if( wid == 0x13 )
+		return "Turret Rotation Equipment";
 	if( wid == 0x14 )
 		return "(Endo Steel)";
 	if( wid == 0x15 )
@@ -430,24 +431,46 @@ std::string HeavyMetal::CritName( short wid, const std::map< short, HMWeapon > *
 		return "Artemis IV FCS";
 	if( wid == 0x19 )
 		return "(CASE)";
-	
+	if( wid == 0x1A )
+		return "Variable Range System";
+	if( wid == 0x1B )
+		return "Multi-Trac II System";
 	if( wid == 0x1C )
 		return "(Reactive Armor)";
-	
+	if( wid == 0x1D )
+		return "(Laser Reflective Armor)";
+	if( wid == 0x1E )
+		return "Mechanical Jump Booster";
 	if( wid == 0x1F )
 		return "Sword";
-	
+	if( wid == 0x20 )
+		return "Supercharger";
+	if( wid == 0x21 )
+		return "(Light Ferro-Fibrous)";
+	if( wid == 0x22 )
+		return "(Heavy Ferro-Fibrous)";
 	if( wid == 0x23 )
 		return "(Stealth)";
 	
+	if( wid == 0x25 )
+		return "Double Heat Sink"; // Laser or 2xCompact
 	if( wid == 0x26 )
 		return "(CASE II)";
-	
+	if( wid == 0x27 )
+		return "Null Signature System";
 	if( wid == 0x28 )
 		return "Coolant Pod";
 	
 	if( wid == 0x2A )
 		return "Command Console";
+	if( wid == 0x2B )
+		return "Claw";
+	if( wid == 0x2C )
+		return "Mace";
+	if( wid == 0x2D )
+		return "Armored Cowl";
+	if( wid == 0x2E )
+		return "Buzzsaw";
 	
 	char idstr[ 8 ] = "";
 	snprintf( idstr, 8, "%X", wid );
@@ -468,6 +491,12 @@ bool HeavyMetal::HittableCrit( short wid )
 	if( wid == 0x19 ) // CASE
 		return false;
 	if( wid == 0x1C ) // Reactive Armor
+		return false;
+	if( wid == 0x1D ) // Laser Reflective Armor
+		return false;
+	if( wid == 0x21 ) // Light Ferro-Fibrous
+		return false;
+	if( wid == 0x22 ) // Heavy Ferro-Fibrous
 		return false;
 	if( wid == 0x23 ) // Stealth
 		return false;
@@ -496,7 +525,15 @@ uint8_t HeavyMetal::CritSlots( short wid, bool clan, const std::map< short, HMWe
 		return 1;
 	if( wid == 0x0A ) // Double Heat Sink
 		return (clan ? 2 : 3);
+	if( wid == 0x0B ) // Jump Jet
+		return 1;
 	if( wid == 0x18 ) // Artemis IV FCS
+		return 1;
+	if( wid == 0x1E ) // Mechanical Jump Booster
+		return 1;
+	if( wid == 0x25 ) // Laser/Compact Heat Sink
+		return (clan ? 2 : 1);
+	if( wid == 0x28 ) // Coolant Pod
 		return 1;
 	
 	return 255;

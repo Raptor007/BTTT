@@ -77,7 +77,9 @@ public:
 	bool WithinFiringArc( uint8_t x, uint8_t y ) const;
 	int8_t ShotModifier( uint8_t range = 0, bool stealth = false ) const;
 	uint8_t ClusterHits( uint8_t roll = 0, bool fcs = false, bool narc = false, bool ecm = false, bool indirect = false, MechEquipment *ams = NULL ) const;
-	void Hit( bool directly = true, bool find_slot = true );
+	uint8_t HitsToDestroy( void ) const;
+	void HitWithEvent( MechLocation *location = NULL );
+	void Hit( bool directly = true, MechLocation *location = NULL );
 };
 
 
@@ -93,8 +95,8 @@ public:
 	uint16_t Armor, MaxArmor, RearArmor, MaxRearArmor;
 	bool IsTorso, IsLeg, IsHead;
 	std::vector<MechEquipment*> CriticalSlots;
-	std::multiset<uint16_t> DamagedCriticals;
-	bool CASE;
+	std::multiset<MechEquipment*> DamagedCriticals;
+	uint8_t CASE;
 	bool Narced;
 	Clock HitClock;
 	uint8_t HitWhere;
@@ -106,7 +108,11 @@ public:
 	
 	bool IsArm( void ) const;
 	uint16_t *ArmorPtr( uint8_t arc = BattleTech::Arc::FRONT );
+	uint16_t ArmorAt( uint8_t arc = BattleTech::Arc::FRONT );
+	uint16_t MaxArmorAt( uint8_t arc = BattleTech::Arc::FRONT );
 	size_t IntactCriticalCount( uint16_t crit_id ) const;
+	size_t DamagedCriticalCount( uint16_t crit_id ) const;
+	std::set<MechEquipment*> Equipment( void ) const;
 	void Damage( uint16_t damage, uint8_t arc = BattleTech::Arc::FRONT, uint8_t crit = 0 );
 	void CriticalHitCheck( uint8_t crit = 1 );
 	void CriticalHits( uint8_t hits = 1 );
@@ -135,13 +141,13 @@ public:
 	int8_t HeatDissipation;
 	MechLocation Locations[ BattleTech::Loc::COUNT ];
 	std::vector<MechEquipment> Equipment;
-	MechEquipment *LifeSupport, *Sensors, *Cockpit, *Engine, *Gyro, *MASC, *ECM;
+	MechEquipment *LifeSupport, *Sensors, *Cockpit, *Engine, *Gyro, *MASC, *Supercharger, *ECM;
 	int8_t PilotSkill, GunnerySkill;
 	uint8_t Team;
 	Clock HitClock;
 	
 	std::vector<MechStep> Steps;
-	uint8_t StandAttempts;
+	uint8_t MoveSpeed, StandAttempts;
 	std::map<uint8_t,uint8_t> WeaponsToFire;
 	std::set<MechMelee> SelectedMelee;
 	bool TookTurn;
@@ -156,7 +162,7 @@ public:
 	int8_t FromTorsoTwist, FromProneFire, FromTurnedArm;
 	bool FromArmsFlipped, FromProne;
 	
-	uint8_t MASCTurns;
+	uint8_t MASCTurns, SuperchargerTurns;
 	uint8_t PilotDamage, Unconscious;
 	int16_t Heat, OutsideHeat;
 	bool Shutdown;
@@ -174,6 +180,7 @@ public:
 	virtual ~Mech();
 	
 	void ClientInit( void );
+	void InitTex( void );
 	
 	bool PlayerShouldUpdateServer( void ) const;
 	bool ServerShouldUpdatePlayer( void ) const;
@@ -195,8 +202,9 @@ public:
 	
 	uint8_t WalkDist( void ) const;
 	uint8_t RunDist( void ) const;
-	uint8_t MASCDist( void ) const;
+	uint8_t MASCDist( uint8_t speed = BattleTech::Move::MASC_SUPERCHARGE ) const;
 	uint8_t JumpDist( void ) const;
+	std::string MPString( uint8_t speed = 0 ) const;
 	
 	MechLocationRoll LocationRoll( uint8_t arc = BattleTech::Arc::FRONT, uint8_t table = BattleTech::HitTable::STANDARD, bool leg_cover = false );
 	MechLocation *HitLocation( uint8_t arc = BattleTech::Arc::FRONT, uint8_t roll = 0 );
@@ -204,12 +212,13 @@ public:
 	MechLocation *PunchLocation( uint8_t arc = BattleTech::Arc::FRONT, uint8_t roll = 0 );
 	
 	void EngineExplode( void );
+	uint8_t PSRModifiers( void ) const;
 	bool PilotSkillCheck( std::string reason = "to avoid fall", int8_t modifier = 0, bool fall = true );
 	void Fall( int8_t psr_modifier = 0 );
 	void HitPilot( std::string reason = "", uint8_t hits = 1 );
-	bool ConsciousnessRoll( bool wake = false );
+	bool ConsciousnessRoll( bool wake = false ) const;
 	
-	bool Destroyed( void ) const;
+	bool Destroyed( bool force_check = false ) const;
 	bool Immobile( void ) const;
 	size_t DamagedCriticalCount( uint16_t crit_id ) const;
 	bool Narced( void ) const;
@@ -228,6 +237,7 @@ public:
 	uint16_t TotalAmmo( uint16_t eq_id ) const;
 	bool SpendAmmo( uint16_t eq_id );
 	
+	uint8_t IntactEquipmentCount( uint16_t eq_id ) const;
 	uint8_t ActiveProbeRange( void ) const;
 	MechEquipment *AvailableAMS( uint8_t arc );
 	bool FiredTAG( void ) const;

@@ -51,7 +51,15 @@ public:
 	GameMenuDisconnectButton( SDL_Rect *rect, Font *button_font );
 	virtual ~GameMenuDisconnectButton();
 	void Clicked( Uint8 button = SDL_BUTTON_LEFT );
-	bool EndGame( void ) const;
+};
+
+
+class GameMenuEndButton : public LabelledButton
+{
+public:
+	GameMenuEndButton( SDL_Rect *rect, Font *button_font );
+	virtual ~GameMenuEndButton();
+	void Clicked( Uint8 button = SDL_BUTTON_LEFT );
 };
 
 
@@ -82,8 +90,19 @@ public:
 	
 	GameMenuCheckBox( SDL_Rect *rect, Font *font, std::string variable, std::string label, std::string true_str = "true", std::string false_str = "false" );
 	virtual ~GameMenuCheckBox();
-	void Changed( void );
 	void Draw( void );
+	virtual void SetChecked( void );
+	virtual void Changed( void );
+};
+
+
+class GameMenuSvCheckBox : public GameMenuCheckBox
+{
+public:
+	GameMenuSvCheckBox( SDL_Rect *rect, Font *font, std::string variable, std::string label, std::string true_str = "true", std::string false_str = "false" );
+	virtual ~GameMenuSvCheckBox();
+	void SetChecked( void );
+	void Changed( void );
 };
 
 

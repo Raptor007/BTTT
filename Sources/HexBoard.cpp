@@ -9,6 +9,7 @@
 #include "SpawnMenu.h"
 #include "WeaponMenu.h"
 #include "GameMenu.h"
+#include "RecordSheet.h"
 #include "Num.h"
 #include <cmath>
 
@@ -22,12 +23,13 @@ HexBoard::HexBoard( void )
 	MessageOutput = new MessageOverlay( TurnFont );
 	AddElement( MessageOutput );
 	
-	AddElement( MessageInput = new TextBox( NULL, TurnFont, Font::ALIGN_TOP_LEFT ) );
+	MessageInput = new TextBox( NULL, TurnFont, Font::ALIGN_TOP_LEFT );
 	MessageInput->ReturnDeselects = false;
 	MessageInput->PassReturn = true;
 	MessageInput->EscDeselects = false;
 	MessageInput->PassEsc = true;
 	MessageInput->Visible = false;
+	MessageInput->Enabled = false;
 	MessageInput->TextRed = 1.f;
 	MessageInput->TextGreen = 1.f;
 	MessageInput->TextBlue = 1.f;
@@ -44,7 +46,10 @@ HexBoard::HexBoard( void )
 	MessageInput->SelectedGreen = MessageInput->Green;
 	MessageInput->SelectedBlue = MessageInput->Blue;
 	MessageInput->SelectedAlpha = MessageInput->Alpha;
+	AddElement( MessageInput );
 	
+	Rect.x = 0;
+	Rect.y = 0;
 	UpdateRects();
 }
 
@@ -56,6 +61,13 @@ HexBoard::~HexBoard()
 
 void HexBoard::UpdateRects( void )
 {
+	if( Rect.x || Rect.y )
+	{
+		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+		game->X -= Rect.x / game->Zoom;
+		game->Y -= Rect.y / game->Zoom;
+	}
+	
 	Rect.x = 0;
 	Rect.y = 0;
 	Rect.w = Raptor::Game->Gfx.W;
@@ -78,7 +90,7 @@ void HexBoard::Draw( void )
 	if( Raptor::Game->Console.IsActive() )
 	{
 		Selected = NULL;
-		MessageInput->Visible = false;
+		MessageInput->Visible = MessageInput->Enabled = false;
 	}
 	else if( MessageInput->IsSelected() )
 	{
@@ -216,7 +228,7 @@ void HexBoard::Draw( void )
 				}
 			}
 			
-			if( (mech->HitClock.ElapsedSeconds() <= 3.5) && (mech->Lifetime.ElapsedSeconds() > 3.5) )
+			if( (mech->HitClock.ElapsedSeconds() <= 3.5) && (mech->Lifetime.ElapsedSeconds() > 3.5) && ! game->GetRecordSheet(mech) )
 			{
 				double zoomed_h = game->Gfx.H / (game->Zoom * 2.);
 				double scale = std::max<double>( 0.1 * zoomed_h, std::min<double>( 1., 0.2 * zoomed_h ) );
@@ -232,81 +244,60 @@ void HexBoard::Draw( void )
 	
 	game->Gfx.Setup2D();
 	
-	if( ! playing_events )
+	double mx = (game->Mouse.X - game->Gfx.W/2) / game->Zoom + game->X;
+	double my = (game->Mouse.Y - game->Gfx.H/2) / game->Zoom + game->Y;
+	Hex *hex = map->Nearest( mx, my );
+	const Mech *mech = hex ? map->MechAt_const( hex->X, hex->Y ) : NULL;
+	
+	if( mech )
 	{
-		double mx = (game->Mouse.X - game->Gfx.W/2) / game->Zoom + game->X;
-		double my = (game->Mouse.Y - game->Gfx.H/2) / game->Zoom + game->Y;
-		Hex *hex = map->Nearest( mx, my );
-		const Mech *mech = hex ? map->MechAt_const( hex->X, hex->Y ) : NULL;
+		if( (mech->HitClock.ElapsedSeconds() > 3.5) && ! game->GetRecordSheet(mech) )
+			mech->DrawHealth( game->Mouse.X - 64, game->Mouse.Y + 35, game->Mouse.X + 64, game->Mouse.Y + 163 );
 		
-		if( mech )
+		std::string name = mech->ShortFullName();
+		if( game->State == BattleTech::State::SETUP )
 		{
-			// FIXME: Draw a box with detailed Mech status.
-			
-			if( mech->HitClock.ElapsedSeconds() > 3.5 )
-				mech->DrawHealth( game->Mouse.X - 64, game->Mouse.Y + 35, game->Mouse.X + 64, game->Mouse.Y + 163 );
-			
-			std::string name = mech->ShortFullName();
-			if( game->State == BattleTech::State::SETUP )
-			{
-				name += std::string(" [") + Num::ToString(mech->Tons) + std::string("T]");
-				if( (mech->GunnerySkill != 3) || (mech->PilotSkill != 4) )
-					name += std::string(" [G") + Num::ToString(mech->GunnerySkill) + std::string("/P") + Num::ToString(mech->PilotSkill) + std::string("]");
-			}
-			if( mech->Destroyed() )
-				name += " [DESTROYED]";
-			else
-			{
-				if( mech->Shutdown )
-					name += " [SHUTDOWN]";
-				if( mech->Unconscious )
-					name += " [UNCONSCIOUS]";
-				if( mech->Prone )
-					name += " [PRONE]";
-				if( mech->Narced() )
-					name += " [NARC]";
-			}
-			if( game->Cfg.SettingAsBool("debug") )
-			{
-				for( std::vector<MechEquipment>::const_iterator eq = mech->Equipment.begin(); eq != mech->Equipment.end(); eq ++ )
-				{
-					std::string eq_line = eq->Name;
-					if( eq->Ammo )
-						eq_line += std::string(" ") + Num::ToString(eq->Ammo);
-					if( eq->WeaponFCS )
-						eq_line += " + Artemis IV FCS";
-					if( eq->WeaponTC )
-						eq_line += " + Targeting Computer";
-					if( eq->WeaponArcs.count(BattleTech::Arc::REAR) && (eq->WeaponArcs.size() == 1) )
-						eq_line += " (Rear)";
-					if( eq->Damaged )
-						eq_line += " [DAMAGED]";
-					name += std::string("\n") + eq_line;
-				}
-			}
-			TurnFont->DrawText( name, game->Mouse.X + 1, game->Mouse.Y + 15, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
-			TurnFont->DrawText( name, game->Mouse.X    , game->Mouse.Y + 14, Font::ALIGN_TOP_CENTER );
+			name += std::string(" [") + Num::ToString(mech->Tons) + std::string("T]");
+			if( (mech->GunnerySkill != 3) || (mech->PilotSkill != 4) )
+				name += std::string(" [G") + Num::ToString(mech->GunnerySkill) + std::string("/P") + Num::ToString(mech->PilotSkill) + std::string("]");
 		}
-		if( hex && (hex->Height || hex->Forest) )
+		if( mech->Destroyed() )
+			name += " [DESTROYED]";
+		else
 		{
-			std::string terrain;
-			if( hex->Height )
-				terrain += std::string("L") + Num::ToString((int)hex->Height);
-			if( hex->Forest )
-				terrain += std::string("F") + Num::ToString((int)hex->Forest);
-			TurnFont->DrawText( terrain, game->Mouse.X + 1, game->Mouse.Y - 1, Font::ALIGN_BOTTOM_CENTER, 0,0,0,0.8f );
-			TurnFont->DrawText( terrain, game->Mouse.X    , game->Mouse.Y - 2, Font::ALIGN_BOTTOM_CENTER );
+			if( mech->Shutdown )
+				name += " [SHUTDOWN]";
+			if( mech->Unconscious )
+				name += " [UNCONSCIOUS]";
+			if( mech->Prone )
+				name += " [PRONE]";
+			if( mech->Narced() )
+				name += " [NARC]";
 		}
-		if( hex && selected )
+		TurnFont->DrawText( name, game->Mouse.X + 1, game->Mouse.Y + 15, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
+		TurnFont->DrawText( name, game->Mouse.X    , game->Mouse.Y + 14, Font::ALIGN_TOP_CENTER );
+	}
+	
+	if( hex && (hex->Height || hex->Forest) )
+	{
+		std::string terrain;
+		if( hex->Height )
+			terrain += std::string("L") + Num::ToString((int)hex->Height);
+		if( hex->Forest )
+			terrain += std::string("F") + Num::ToString((int)hex->Forest);
+		TurnFont->DrawText( terrain, game->Mouse.X + 1, game->Mouse.Y - 1, Font::ALIGN_BOTTOM_CENTER, 0,0,0,0.8f );
+		TurnFont->DrawText( terrain, game->Mouse.X    , game->Mouse.Y - 2, Font::ALIGN_BOTTOM_CENTER );
+	}
+	
+	if( hex && selected && ! playing_events )
+	{
+		uint8_t x, y;
+		selected->GetPosition( &x, &y );
+		if( (x != hex->X) || (y != hex->Y) )
 		{
-			uint8_t x, y;
-			selected->GetPosition( &x, &y );
-			if( (x != hex->X) || (y != hex->Y) )
-			{
-				std::string dist = std::string("Dist ") + Num::ToString((int)map->HexDist(x,y,hex->X,hex->Y));
-				TurnFont->DrawText( dist, game->Mouse.X + 16, game->Mouse.Y - 5, Font::ALIGN_TOP_LEFT, 0,0,0,0.8f );
-				TurnFont->DrawText( dist, game->Mouse.X + 15, game->Mouse.Y - 6, Font::ALIGN_TOP_LEFT );
-			}
+			std::string dist = std::string("Dist ") + Num::ToString((int)map->HexDist(x,y,hex->X,hex->Y));
+			TurnFont->DrawText( dist, game->Mouse.X + 16, game->Mouse.Y - 5, Font::ALIGN_TOP_LEFT, 0,0,0,0.8f );
+			TurnFont->DrawText( dist, game->Mouse.X + 15, game->Mouse.Y - 6, Font::ALIGN_TOP_LEFT );
 		}
 	}
 	
@@ -322,47 +313,72 @@ void HexBoard::Draw( void )
 			}
 		}
 	}
-	else if( (game->State == BattleTech::State::MOVEMENT) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == game->MyTeam()) )
-	{
-		bool moved = selected->Steps.size() || selected->StandAttempts;
-		status = selected->ShortName();
-		if( moved )
-			status += std::string(" moved ") + Num::ToString(selected->StepCost()) + std::string(" of ");
-		else
-			status += " can move ";
-		status += Num::ToString((int)selected->WalkDist());
-		if( selected->RunDist() || selected->JumpDist() )
-		{
-			status += std::string("/") + Num::ToString((int)selected->RunDist());
-			if( selected->MASCDist() )
-				status += std::string("[") + Num::ToString((int)selected->MASCDist()) + std::string("]");
-			status += std::string("/") + Num::ToString((int)selected->JumpDist());
-		}
-		uint8_t move_mode = selected->SpeedNeeded(true);
-		if( ! moved )
-			status += ".";
-		else if( move_mode == BattleTech::Move::STOP )
-			status += " to stand still.";
-		else if( move_mode == BattleTech::Move::WALK )
-			status += " which can be walked.";
-		else if( move_mode == BattleTech::Move::RUN )
-			status += " which requires running.";
-		else if( move_mode == BattleTech::Move::MASC )
-			status += " which requires MASC.";
-		else if( move_mode == BattleTech::Move::JUMP )
-			status += " which requires jumping.";
-		else if( move_mode == BattleTech::Move::INVALID )
-			status += ", an invalid move.";
-		
-		if( selected->Prone )
-			status += selected->CanStand() ? "  Up Arrow to stand." : "  It cannot stand.";
-		
-		if( selected->Shutdown || selected->Unconscious )
-			status = selected->ShortName() + std::string(" cannot move this turn.");
-	}
 	else if( Selected == MessageInput )
 	{
 		status = "Press Enter to send chat message or Esc to cancel.";
+	}
+	else if( (game->State == BattleTech::State::MOVEMENT) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == game->MyTeam()) )
+	{
+		uint8_t move_mode = selected->MoveSpeed ? selected->MoveSpeed : selected->SpeedNeeded(true);
+		uint8_t step_cost = selected->StepCost();
+		if( move_mode == BattleTech::Move::JUMP )
+		{
+			uint8_t x, y;
+			selected->GetPosition( &x, &y );
+			step_cost = map->HexDist( selected->X, selected->Y, x, y );
+		}
+		
+		status = selected->ShortName();
+		
+		if( selected->Steps.size() )
+			status += std::string(" moves ") + Num::ToString(step_cost) + std::string(" of ");
+		else if( step_cost )
+			status += std::string(" moved ") + Num::ToString(step_cost) + std::string(" of ");
+		else
+			status += " can move ";
+		
+		status += selected->MPString( selected->MoveSpeed );
+		
+		if( move_mode == BattleTech::Move::WALK )
+			status += " walking.";
+		else if( move_mode == BattleTech::Move::RUN )
+			status += " running.";
+		else if( move_mode == BattleTech::Move::MASC )
+			status += " with MASC.";
+		else if( move_mode == BattleTech::Move::SUPERCHARGE )
+			status += " with Supercharger.";
+		else if( move_mode == BattleTech::Move::MASC_SUPERCHARGE )
+			status += " with MASC and Supercharger.";
+		else if( move_mode == BattleTech::Move::JUMP )
+			status += " jumping.";
+		else if( move_mode == BattleTech::Move::INVALID )
+			status += ", an invalid move.";
+		else
+			status += ".";
+		
+		if( selected->Prone )
+		{
+			if( ! selected->CanStand() )
+				status += "  It cannot stand.";
+			else if( selected->MoveSpeed )
+				status += "  Up arrow to stand.";
+			else
+				status += "  Up arrow to stand running, down for walking.";
+		}
+		
+		if( selected->Shutdown || selected->Unconscious )
+			status = selected->ShortName() + std::string(" cannot move this turn.  Press Enter to skip.");
+	}
+	else if( (game->State >= BattleTech::State::TAG) && (game->State <= BattleTech::State::PHYSICAL_ATTACK) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == game->MyTeam()) )
+	{
+		if( ! selected->ReadyAndAble() )
+			status = selected->ShortName() + std::string(" cannot ") + game->PhaseName() + std::string(" this turn.  Press Enter to skip.");
+		else if( target && Path.LineOfSight && (WeaponsInRange.size() || (game->State == BattleTech::State::PHYSICAL_ATTACK)) )
+			status = std::string("Press Enter to submit ") + game->PhaseName() + std::string(" target: ") + target->ShortName();
+		else if( Path.size() )
+			status = std::string("Press Enter to skip ") + game->PhaseName() + std::string(" (no target).");
+		else
+			status = std::string("Right-click target for ") + game->PhaseName() + std::string(", or press Enter to skip.");
 	}
 	else if( (game->State == BattleTech::State::SETUP) || ! playing_events )
 	{
@@ -373,45 +389,42 @@ void HexBoard::Draw( void )
 				status += (game->TeamTurn == game->MyTeam()) ? " (your team)" : " (enemy team)";
 			else
 			{
-				std::map<std::string,std::string>::const_iterator team_iter = game->Data.Properties.find( std::string("team") + Num::ToString((int)(game->TeamTurn)) );
-				if( team_iter != game->Data.Properties.end() )
-					status += std::string(" (") + team_iter->second + std::string(")");
+				std::string team_name = game->TeamName( game->TeamTurn );
+				if( ! team_name.empty() )
+					status += std::string(" (") + team_name + std::string(")");
 			}
 		}
 		else if( game->State == BattleTech::State::SETUP )
 		{
-			const Layer *top = game->Layers.TopLayer();
-			
 			if( selected && selected->Steps.size() )
 				status = "Press Enter to submit new spawn position.";
-			else if( top == this )
+			else if( game->Layers.Find("GameMenu") )
 			{
-				if( selected && (selected->PlayerID == game->PlayerID) )
-				{
-					if( game->Hotseat() )
-						status = "Press Tab to spawn for the other team.  When done, press Enter.";
-					else
-						status = "When you are satisfied with your spawn position, press Enter.";
-				}
-				else if( game->MyTeam() )
-					status = "Right-click to drop.  Press Tab to change team/Mech.";
+				if( game->ReadyToBegin() )
+					status = "When everyone is ready, click Initiate Combat.";
 				else
-					status = "Press Tab to select a team and BattleMech.";
+					status = "Set game options, then click Team/Mech to begin.";
 			}
-			else if( top->Name == "SpawnMenu" )
+			else if( game->Layers.Find("SpawnMenu") )
 			{
 				if( game->MyTeam() )
 					status = "Select a BattleMech, then right-click to drop.";
 				else
 					status = "Select a team and BattleMech, then right-click to drop.";
 			}
-			else if( top->Name == "GameMenu" )
+			else if( selected && (selected->PlayerID == game->PlayerID) )
 			{
-				if( game->MyTeam() )
-					status = "When everyone is ready, click Initiate Combat.";
+				if( game->Hotseat() && ! game->ReadyToBegin() )
+					status = "Press Tab to spawn for the other team.  When done, press Enter.";
+				else if( game->ReadyToBegin() )
+					status = "When everyone is ready to play, press Enter.";
 				else
-					status = "Set game options, then click Team/Mech to begin.";
+					status = "Use arrows to move spawn point and Enter to submit.";
 			}
+			else if( game->MyTeam() )
+				status = "Right-click to drop.  Press Tab to change team/Mech.";
+			else
+				status = "Press Tab to select a team and BattleMech.";
 		}
 	}
 	TurnFont->DrawText( status, Rect.w/2 + 2, Rect.h,     Font::ALIGN_BOTTOM_CENTER, 0,0,0,0.8f );
@@ -437,9 +450,14 @@ bool HexBoard::MouseDown( Uint8 button )
 	
 	bool shift = game->Keys.KeyDown(SDLK_LSHIFT) || game->Keys.KeyDown(SDLK_RSHIFT);
 	
+	Draggable = false;
+	
 	if( (button == SDL_BUTTON_LEFT) && ! shift )
 	{
 		Mech *clicked = hex ? map->MechAt( hex->X, hex->Y ) : NULL;
+		
+		Draggable = (! clicked) && game->Cfg.SettingAsBool("map_drag");
+		
 		if( clicked != selected )
 		{
 			if( selected )
@@ -454,17 +472,19 @@ bool HexBoard::MouseDown( Uint8 button )
 				game->Snd.Play( game->Res.GetSound("i_select.wav") );
 		}
 	}
-	else if( (button == SDL_BUTTON_WHEELUP) && IsTop() && ! game->Console.IsActive() )
+	else if( button == SDL_BUTTON_MIDDLE )
+		Draggable = true;
+	else if( (button == SDL_BUTTON_WHEELUP) && ! game->Console.IsActive() )
 	{
-		game->Zoom *= 1.25;
+		game->Zoom *= 1.1;
 		double new_mx = (game->Mouse.X - game->Gfx.W/2) / game->Zoom + game->X;
 		double new_my = (game->Mouse.Y - game->Gfx.H/2) / game->Zoom + game->Y;
 		game->X += (mx - new_mx);
 		game->Y += (my - new_my);
 	}
-	else if( (button == SDL_BUTTON_WHEELDOWN) && IsTop() && ! game->Console.IsActive() )
+	else if( (button == SDL_BUTTON_WHEELDOWN) && ! game->Console.IsActive() )
 	{
-		game->Zoom /= 1.25;
+		game->Zoom /= 1.1;
 		double new_mx = (game->Mouse.X - game->Gfx.W/2) / game->Zoom + game->X;
 		double new_my = (game->Mouse.Y - game->Gfx.H/2) / game->Zoom + game->Y;
 		game->X += (mx - new_mx);
@@ -491,7 +511,10 @@ bool HexBoard::MouseDown( Uint8 button )
 			if( map->MechAt_const( hex->X, hex->Y ) )
 				return true;
 			if( ! game->MyTeam() )
+			{
+				game->Snd.Play( game->Res.GetSound("i_toofar.wav") );
 				return true;
+			}
 			if( ! game->Variants.size() )
 			{
 				game->Console.Print( "No Mech variants loaded!", TextConsole::MSG_ERROR );
@@ -544,8 +567,7 @@ bool HexBoard::MouseDown( Uint8 button )
 			game->Net.Send( &spawn_mech );
 			
 			// Close the SpawnMenu after we drop a 'Mech so we can use arrow keys to move it.
-			if( ! IsTop() )
-				game->Layers.RemoveTop();
+			RemoveSetupMenus();
 		}
 		else if( selected && selected->ReadyAndAble() )
 		{
@@ -622,6 +644,7 @@ bool HexBoard::KeyDown( SDLKey key )
 	bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
 	
 	bool shift = game->Keys.KeyDown(SDLK_LSHIFT) || game->Keys.KeyDown(SDLK_RSHIFT);
+	bool alt = game->Keys.KeyDown(SDLK_LALT) || game->Keys.KeyDown(SDLK_RALT);
 	
 	if( MessageInput->IsSelected() )
 	{
@@ -630,7 +653,7 @@ bool HexBoard::KeyDown( SDLKey key )
 			std::string msg = MessageInput->Text;
 			MessageInput->Text = "";
 			Selected = NULL;
-			MessageInput->Visible = false;
+			MessageInput->Visible = MessageInput->Enabled = false;
 			Player *player = Raptor::Game->Data.GetPlayer( Raptor::Game->PlayerID );
 			if( player && ! msg.empty() )
 			{
@@ -644,14 +667,50 @@ bool HexBoard::KeyDown( SDLKey key )
 		{
 			MessageInput->Text = "";
 			Selected = NULL;
-			MessageInput->Visible = false;
+			MessageInput->Visible = MessageInput->Enabled = false;
 		}
 		return MessageInput->KeyDown( key );
 	}
-	else if( key == SDLK_t )
+	else if( (key == SDLK_t) || (key == SDLK_INSERT) )
 	{
 		Selected = MessageInput;
-		MessageInput->Visible = true;
+		MessageInput->Visible = MessageInput->Enabled = true;
+	}
+	else if( key == SDLK_i )
+	{
+		RecordSheet *rs = game->GetRecordSheet( selected );
+		if( rs )
+			rs->Close();
+		else
+			game->ShowRecordSheet( selected );
+	}
+	else if( (key == SDLK_o) && target )
+	{
+		RecordSheet *rs = game->GetRecordSheet( target );
+		if( rs )
+			rs->Close();
+		else
+			game->ShowRecordSheet( target );
+	}
+	else if( key == SDLK_p )
+	{
+		bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+		RecordSheet *rs = (RecordSheet*) game->Layers.Find("RecordSheet");
+		if( playing_events )
+		{
+			if( rs )
+			{
+				rs->Remove();
+				game->Cfg.Settings[ "record_sheet_popup" ] = "false";
+			}
+			else
+				game->Cfg.Settings[ "record_sheet_popup" ] = "true";
+		}
+		else while( rs )
+		{
+			rs->Close();
+			rs = (RecordSheet*) game->Layers.Find("RecordSheet");
+		}
 	}
 	else if( (key == SDLK_q) || (key == SDLK_HOME) )
 		map->ClientInit();
@@ -693,9 +752,9 @@ bool HexBoard::KeyDown( SDLKey key )
 		}
 	}
 	else if( (key == SDLK_r) || (key == SDLK_EQUALS) || (key == SDLK_PAGEUP) )
-		game->Zoom *= 1.25;
+		game->Zoom *= 1.21;
 	else if( (key == SDLK_f) || (key == SDLK_MINUS) || (key == SDLK_PAGEDOWN) )
-		game->Zoom /= 1.25;
+		game->Zoom /= 1.21;
 	else if( key == SDLK_w )
 		game->Y -= 150. / game->Zoom;
 	else if( key == SDLK_s )
@@ -728,19 +787,19 @@ bool HexBoard::KeyDown( SDLKey key )
 		player_properties.AddString( team_str );
 		game->Net.Send( &player_properties );
 	}
-	else if( (key == SDLK_TAB) && IsTop() )
+	else if( key == SDLK_TAB )
 	{
 		RemoveWeaponMenu();
 		game->Layers.Add( new SpawnMenu() );
 	}
 	else if( ((key == SDLK_RETURN) || (key == SDLK_KP_ENTER))
-	&& (game->State == BattleTech::State::SETUP) && IsTop()
-	&& (! selected || ! selected->Steps.size()) )
+	&&       ((game->State == BattleTech::State::SETUP) || (game->State == BattleTech::State::GAME_OVER))
+	&&       (! selected || ! selected->Steps.size()) )
 	{
 		RemoveWeaponMenu();
 		game->Layers.Add( new GameMenu() );
 	}
-	else if( (key == SDLK_ESCAPE) && IsTop() && (playing_events || ! selected) )
+	else if( (key == SDLK_ESCAPE) && (playing_events || ! selected) )
 	{
 		RemoveWeaponMenu();
 		game->Layers.Add( new GameMenu() );
@@ -784,6 +843,9 @@ bool HexBoard::KeyDown( SDLKey key )
 			for( std::vector<MechStep>::const_iterator step = selected->Steps.begin(); step != selected->Steps.end(); step ++ )
 				movement.AddUChar( step->Move );
 			game->Net.Send( &movement );
+			
+			if( game->State == BattleTech::State::MOVEMENT )
+				selected->MoveSpeed = speed;
 			
 			selected->Steps.clear();
 			game->TargetID = 0;
@@ -952,6 +1014,14 @@ bool HexBoard::KeyDown( SDLKey key )
 				UpdateWeaponsInRange( selected, target );
 		}
 	}
+	else if( (key == SDLK_BACKSPACE) && (game->State == BattleTech::State::WEAPON_ATTACK) && selected->TorsoTwist && selected->ReadyAndAble() )
+	{
+		game->Snd.Play( game->Res.GetSound("m_twist.wav") );
+		selected->Animate( 0.1, BattleTech::Effect::TORSO_TWIST );
+		selected->TorsoTwist = 0;
+		if( target && Path.size() )
+			UpdateWeaponsInRange( selected, target );
+	}
 	else if( ((key == SDLK_DELETE) || ((key == SDLK_BACKSPACE) && shift)) && ! enemy_turn )
 	{
 		if( game->State != BattleTech::State::MOVEMENT )
@@ -972,13 +1042,31 @@ bool HexBoard::KeyDown( SDLKey key )
 	else if( (game->State != BattleTech::State::MOVEMENT)
 	&&       (game->State != BattleTech::State::SETUP) )
 		return false;
-	else if( (key == SDLK_UP) && selected->Prone && selected->ReadyAndAble() && selected->CanStand() && ! enemy_turn && ! playing_events )
+	else if( ((key == SDLK_UP) || (key == SDLK_DOWN)) && selected->Prone && selected->ReadyAndAble() && selected->CanStand() && ! enemy_turn && ! playing_events )
 	{
 		selected->Steps.clear();
-		selected->StandAttempts ++;
+		if( ! selected->MoveSpeed )
+		{
+			if( key == SDLK_UP )
+			{
+				bool masc = shift && selected->MASCDist( BattleTech::Move::MASC );
+				bool supercharge = alt && selected->MASCDist( BattleTech::Move::SUPERCHARGE );
+				if( masc && supercharge )
+					selected->MoveSpeed = BattleTech::Move::MASC_SUPERCHARGE;
+				else if( masc )
+					selected->MoveSpeed = BattleTech::Move::MASC;
+				else if( supercharge )
+					selected->MoveSpeed = BattleTech::Move::SUPERCHARGE;
+				else
+					selected->MoveSpeed = BattleTech::Move::RUN;
+			}
+			else
+				selected->MoveSpeed = BattleTech::Move::WALK;
+		}
 		
 		Packet stand( BattleTech::Packet::STAND );
 		stand.AddUInt( selected->ID );
+		stand.AddUChar( selected->MoveSpeed );
 		game->Net.Send( &stand );
 	}
 	else if( (key == SDLK_UP) && (! selected->Prone) && selected->ReadyAndAble() && ! playing_events )
@@ -1055,12 +1143,9 @@ void HexBoard::ClearPath( bool remove_menu )
 
 void HexBoard::RemoveWeaponMenu( void )
 {
-	if( Elements.size() )
-	{
-		Layer *top_element = Elements.back();
-		if( top_element->Name == "WeaponMenu" )
-			Elements.resize( Elements.size() - 1 );
-	}
+	Layer *wm = Raptor::Game->Layers.Find("WeaponMenu");
+	if( wm )
+		wm->Remove();
 }
 
 
@@ -1115,18 +1200,26 @@ void HexBoard::UpdateWeaponsInRange( Mech *selected, Mech *target )
 	else
 		return;
 	
-	WeaponMenu *wm = NULL;
-	if( Elements.size() )
-	{
-		Layer *top_element = Elements.back();
-		if( top_element->Name == "WeaponMenu" )
-			wm = (WeaponMenu*) top_element;
-	}
-	if( ! wm )
-		AddElement( new WeaponMenu( this ) );
-	else
-		wm->Update();
+	RemoveSetupMenus();
 	
-	if( ! IsTop() )
-		game->Layers.RemoveTop();
+	WeaponMenu *wm = (WeaponMenu*) game->Layers.Find("WeaponMenu");
+	if( ! wm )
+		game->Layers.Add( new WeaponMenu() );
+	else
+	{
+		wm->Update();
+		wm->MoveToTop();
+	}
+}
+
+
+void HexBoard::RemoveSetupMenus( void ) const
+{
+	Layer *spawn_menu = Raptor::Game->Layers.Find("SpawnMenu");
+	if( spawn_menu )
+		spawn_menu->Remove();
+	
+	Layer *game_menu = Raptor::Game->Layers.Find("GameMenu");
+	if( game_menu )
+		game_menu->Remove();
 }

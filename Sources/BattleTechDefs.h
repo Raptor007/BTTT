@@ -116,6 +116,24 @@ namespace BattleTech
 			PURPLE     = 0x62
 		};
 	}
+
+	namespace Stat
+	{
+		enum
+		{
+			NONE = 0,
+			EQUIPMENT,
+			AMMO,
+			SHUTDOWN,
+			PILOT,
+			HEAT,
+			HEAT_MASC_SC,
+			HEAT_ADD,
+			HEATSINKS,
+			ACTIVE_SPECIAL,
+			NARC
+		};
+	}
 	
 	namespace Dir
 	{
@@ -140,6 +158,8 @@ namespace BattleTech
 			REVERSE,
 			RUN,
 			MASC,
+			SUPERCHARGE,
+			MASC_SUPERCHARGE,
 			JUMP,
 			LEFT,
 			RIGHT
@@ -203,18 +223,23 @@ namespace BattleTech
 			FOOT_ACTUATOR      = 0x08,
 			SINGLE_HEAT_SINK   = 0x09,
 			DOUBLE_HEAT_SINK   = 0x0A,
+			JUMP_JET           = 0x0B,
 			LIFE_SUPPORT       = 0x0C,
 			SENSORS            = 0x0D,
 			COCKPIT            = 0x0E,
 			ENGINE             = 0x0F,
 			GYRO               = 0x10,
+			HATCHET            = 0x11,
 			TARGETING_COMPUTER = 0x12,
 			MASC               = 0x17,
 			ARTEMIS_IV_FCS     = 0x18,
 			CASE               = 0x19,
-			JUMP_JET           = 0x0B,
-			HATCHET            = 0x11,
-			SWORD              = 0x1F
+			JUMP_BOOSTER       = 0x1E,
+			SWORD              = 0x1F,
+			SUPERCHARGER       = 0x20,
+			LASER_HEAT_SINK    = 0x25,
+			CASE_II            = 0x26,
+			COOLANT_POD        = 0x28
 		};
 	}
 	

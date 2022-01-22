@@ -30,7 +30,7 @@ public:
 	Mech *Selected;
 	Label *HeatTotal;
 	
-	WeaponMenu( HexBoard *container );
+	WeaponMenu( void );
 	virtual ~WeaponMenu();
 	void Draw( void );
 	bool KeyDown( SDLKey key );

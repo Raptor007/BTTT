@@ -5,6 +5,7 @@
 #include "SpawnMenu.h"
 
 #include "BattleTechGame.h"
+#include "HexBoard.h"
 #include "GroupBox.h"
 #include "Num.h"
 
@@ -154,7 +155,10 @@ void SpawnMenu::Draw( void )
 
 bool SpawnMenu::KeyDown( SDLKey key )
 {
-	if( (key == SDLK_ESCAPE) || (key == SDLK_TAB) || (key == SDLK_RETURN) || (key == SDLK_KP_ENTER) )
+	HexBoard *hex_board = (HexBoard*) Raptor::Game->Layers.Find("HexBoard");
+	if( hex_board && (hex_board->Selected == hex_board->MessageInput) )
+		return false;
+	else if( (key == SDLK_ESCAPE) || (key == SDLK_TAB) || (key == SDLK_RETURN) || (key == SDLK_KP_ENTER) )
 		Remove();
 	else if( key == SDLK_UP )
 		MechList->Clicked( SDL_BUTTON_WHEELUP );
@@ -246,9 +250,11 @@ bool SpawnMenu::KeyDown( SDLKey key )
 
 bool SpawnMenu::MouseDown( Uint8 button )
 {
+	MoveToTop();
+	
 	if( (button == SDL_BUTTON_WHEELUP) || (button == SDL_BUTTON_WHEELDOWN) )
 	{
-		if( Raptor::Game->Mouse.Y > MechList->CalcRect.y + MechList->CalcRect.h )
+		if( MechDetails->WithinCalcRect( Raptor::Game->Mouse.X, Raptor::Game->Mouse.Y ) )
 		{
 			if( Raptor::Game->Keys.KeyDown(SDLK_LSHIFT) || Raptor::Game->Keys.KeyDown(SDLK_RSHIFT) )
 			{
@@ -260,9 +266,12 @@ bool SpawnMenu::MouseDown( Uint8 button )
 			else
 				MechList->Clicked( button );
 		}
+		
 		return true;
 	}
-	return false;
+	
+	Draggable = (button == SDL_BUTTON_LEFT);
+	return Window::MouseDown( button );
 }
 
 
@@ -411,9 +420,12 @@ SpawnMenuDropDown::~SpawnMenuDropDown()
 
 void SpawnMenuDropDown::Changed( void )
 {
-	Raptor::Game->Cfg.Settings[ Variable ] = Value;
+	bool is_mech = (Variable == "mech");
 	
-	if( Variable == "mech" )
+	if( Value.length() || ! is_mech )
+		Raptor::Game->Cfg.Settings[ Variable ] = Value;
+	
+	if( is_mech )
 		((SpawnMenu*)( Container->Container ))->Update();
 	
 	DropDown::Changed();

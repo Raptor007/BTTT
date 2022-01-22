@@ -20,7 +20,6 @@ public:
 	std::queue<uint8_t> TeamTurns;
 	std::map< uint8_t, std::set<Mech*> > UnmovedUnits;
 	uint32_t UnitTurn;
-	bool UnitCheckedMASC;
 	
 	BattleTechServer( std::string version );
 	virtual ~BattleTechServer();
@@ -34,6 +33,7 @@ public:
 	
 	void Update( double dt );
 	
+	bool DeclareMovement( Mech *mech, uint8_t speed, bool stand = false );
 	bool MechTurn( const Mech *mech );
 	void TookTurn( Mech *mech = NULL );
 	double SendEvents( void );

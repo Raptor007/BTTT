@@ -25,7 +25,6 @@ BattleTechServer::BattleTechServer( std::string version ) : RaptorServer( "BTTT"
 	AnnouncePort = 3050;
 	
 	UnitTurn = 0;
-	UnitCheckedMASC = false;
 }
 
 
@@ -68,7 +67,7 @@ void BattleTechServer::Started( void )
 	Console->Print( "Map seed: " + Num::ToString( (int) map->Seed ) );
 	
 	// The Windows random number generator was making me superstitious.
-	for( size_t throwaway_rolls = 1 + (time(NULL) % 4); throwaway_rolls; throwaway_rolls -- )
+	for( size_t throwaway_rolls = (time(NULL) % 4) * 2 + 1; throwaway_rolls; throwaway_rolls -- )
 		Roll::Die();
 }
 
@@ -277,135 +276,11 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		if( (State != BattleTech::State::SETUP) && ! MechTurn( mech ) )
 			return true;
 		
-		mech->Attack = 0;
-		mech->Defense = 0;
-		
 		uint8_t speed = packet->NextUChar();
 		
-		// If they failed a MASC roll this turn, their speed is still MASC.
-		if( UnitCheckedMASC )
-			speed = BattleTech::Move::MASC;
-		
-		if( State == BattleTech::State::SETUP )
-			;
-		else if( speed == BattleTech::Move::STOP )
-		{
-			Event e( mech );
-			e.Effect = BattleTech::Effect::BLINK;
-			e.Text = mech->ShortFullName() + std::string(" is not moving.");
-			Events.push( e );
-		}
-		else if( speed == BattleTech::Move::WALK )
-		{
-			Event e( mech );
-			e.Effect = BattleTech::Effect::BLINK;
-			e.Sound = "m_walk.wav";
-			e.Text = mech->ShortFullName() + std::string(" is walking.");
-			Events.push( e );
-			
-			mech->Heat += 1;
-			mech->Attack = 1;
-		}
-		else if( speed == BattleTech::Move::RUN )
-		{
-			Event e( mech );
-			e.Effect = BattleTech::Effect::BLINK;
-			e.Sound = "m_run.wav";
-			e.Text = mech->ShortFullName() + std::string(" is running.");
-			Events.push( e );
-			
-			mech->Heat += 2;
-			mech->Attack = 2;
-		}
-		else if( speed == BattleTech::Move::MASC )
-		{
-			if( ! UnitCheckedMASC )
-			{
-				mech->MASCTurns ++;
-				UnitCheckedMASC = true;
-				
-				uint8_t masc_need = 3;
-				if( mech->MASCTurns >= 5 )
-					masc_need = 99;
-				else if( mech->MASCTurns >= 4 )
-					masc_need = 11;
-				else if( mech->MASCTurns >= 3 )
-					masc_need = 7;
-				else if( mech->MASCTurns >= 2 )
-					masc_need = 5;
-				uint8_t masc_roll = Roll::Dice( 2 );
-				
-				Event e( mech );
-				e.Effect = BattleTech::Effect::BLINK;
-				if( masc_roll < masc_need )
-				{
-					e.Misc = BattleTech::RGB332::DARK_RED;
-					e.Duration = 1.f;
-				}
-				e.Sound = "m_run.wav";
-				e.Text = mech->ShortFullName() + std::string(" is using MASC.  Must roll ") + Num::ToString((int)masc_need)
-					+ std::string(" to avoid damage.  Rolled ") + Num::ToString((int)masc_roll) + std::string( (masc_roll >= masc_need) ? ": PASSED!" : ": FAILED!" );
-				Events.push( e );
-				
-				if( masc_roll < masc_need )
-				{
-					uint8_t masc_dist = mech->MASCDist();
-					
-					for( uint8_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
-					{
-						if( mech->Locations[ i ].IsLeg )
-							mech->Locations[ i ].CriticalHits( 1 );
-					}
-					
-					// Immediately roll any PSRs caused by MASC damage.
-					while( mech->PSRs.size() )
-					{
-						std::string reason = mech->PSRs.front();
-						mech->PSRs.pop();
-						if( mech->Prone || mech->Destroyed() )
-							continue;
-						mech->PilotSkillCheck( reason );
-						mech->AutoFall = "";
-					}
-					
-					SendEvents();
-					
-					if( mech->Destroyed() || mech->Unconscious )
-					{
-						TookTurn( mech );
-						return true;
-					}
-					else if( mech->Prone || (mech->MASCDist() < masc_dist) )
-					{
-						UnitTurn = mech->ID;
-						
-						Packet update = Packet( Raptor::Packet::UPDATE );
-						update.AddChar( -127 ); // Precision
-						update.AddUInt( 1 );    // Number of Objects
-						update.AddUInt( mech->ID );
-						mech->AddToUpdatePacketFromServer( &update, -127 );
-						Net.SendAll( &update );
-						
-						return true;
-					}
-				}
-				
-				mech->Heat += 2;
-			}
-			else
-			{
-				Event e( mech );
-				e.Effect = BattleTech::Effect::BLINK;
-				e.Sound = "m_run.wav";
-				e.Text = mech->ShortFullName() + std::string(" is using MASC." );
-				Events.push( e );
-			}
-			
-			mech->Attack = 2;
-		}
-		
-		if( mech->MASCTurns && (speed != BattleTech::Move::MASC) )
-			mech->MASCTurns --;
+		// Show start of movement event, set MoveSpeed and Attack, and add Heat.  Abort move if MP is reduced by failed MASC/Supercharger check.
+		if( ! DeclareMovement( mech, speed ) )
+			return true;
 		
 		const HexMap *map = Map();
 		uint8_t entered = 0;
@@ -421,6 +296,8 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			if( (move == BattleTech::Move::WALK)
 			||  (move == BattleTech::Move::RUN)
 			||  (move == BattleTech::Move::MASC)
+			||  (move == BattleTech::Move::SUPERCHARGE)
+			||  (move == BattleTech::Move::MASC_SUPERCHARGE)
 			||  (move == BattleTech::Move::REVERSE) )
 			{
 				std::map<uint8_t,const Hex*> adjacent = map->Adjacent_const( mech->X, mech->Y );
@@ -487,16 +364,17 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			}
 			else
 			{
+				mech->Attack = 3;
+				mech->Heat += std::max<uint8_t>( 3, map->JumpCost( old_x, old_y, mech->X, mech->Y ) );
+				entered = map->HexDist( old_x, old_y, mech->X, mech->Y );
+				
 				e.ShowFacing( mech->Facing );
 				e.Sound = "m_jump.wav";
 				e.Duration = 2.f;
 				e.Text = mech->ShortFullName() + std::string(" is jumping.");
+				e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
 			}
 			Events.push( e );
-			
-			mech->Heat += std::max<uint8_t>( 3, map->JumpCost( old_x, old_y, mech->X, mech->Y ) );
-			mech->Attack = 3;
-			entered = map->HexDist( old_x, old_y, mech->X, mech->Y );
 		}
 		
 		if( entered >= 25 )
@@ -528,6 +406,8 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				
 				if( (speed == BattleTech::Move::RUN)
 				||  (speed == BattleTech::Move::MASC)
+				||  (speed == BattleTech::Move::SUPERCHARGE)
+				||  (speed == BattleTech::Move::MASC_SUPERCHARGE)
 				||  (speed == BattleTech::Move::JUMP) )
 				{
 					std::string speed_str = (speed == BattleTech::Move::JUMP) ? "jumping" : "running";
@@ -586,6 +466,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			return true;
 		
 		uint32_t mech_id = packet->NextUInt();
+		uint8_t move_speed = packet->NextUChar();
 		
 		Mech *mech = (Mech*) Data.GetObject( mech_id );
 		if( mech && (mech->Type() != BattleTech::Object::MECH) )
@@ -599,6 +480,10 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		if( ! mech->CanStand() )
 			return true;
 		
+		// Set movement speed and make any MASC/Supercharger checks.  Abort standing if failed check reduces MP or makes us unable to move.
+		if( (State != BattleTech::State::SETUP) && ! DeclareMovement( mech, move_speed, true ) )
+			return true;
+		
 		Event e( mech );
 		e.Effect = BattleTech::Effect::STAND;
 		e.ShowFacing( mech->Facing );
@@ -607,8 +492,16 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			e.Duration = 0.f;
 		else
 		{
-			e.Text = mech->ShortFullName() + std::string(" stands up.");
+			// Each attempt to stand generates 1 heat.
+			mech->Heat ++;
+			
+			e.Text = mech->ShortFullName();
+			if( ! mech->MoveSpeed )
+				e.Text += (move_speed >= BattleTech::Move::RUN) ? " stands up running." : " stands up walking.";
+			else
+				e.Text += " stands up.";
 			e.Duration = 0.5f;
+			e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
 		}
 		Events.push( e );
 		
@@ -619,9 +512,6 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		}
 		else
 		{
-			// Each attempt to stand generates 1 heat.
-			mech->Heat ++;
-			
 			if( mech->PilotSkillCheck( "to stand" ) )
 				mech->Prone = false;
 			
@@ -635,6 +525,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			
 			// This 'Mech must now complete its turn before anyone else can move.
 			UnitTurn = mech->ID;
+			mech->MoveSpeed = move_speed;
 		}
 	}
 	else if( type == BattleTech::Packet::SHOTS )
@@ -668,7 +559,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		e.Effect = BattleTech::Effect::BLINK;
 		if( State != BattleTech::State::TAG )
 		{
-			e.Text = from->ShortFullName() + std::string(" has declared ") + Num::ToString((int)count) + std::string(" weapons to fire.");
+			e.Text = from->ShortFullName() + std::string(" has declared ") + Num::ToString((int)count) + std::string((count == 1)?" weapon to fire.":" weapons to fire.");
 			Packet events( BattleTech::Packet::EVENTS );
 			events.AddUShort( 1 );
 			e.AddToPacket( &events );
@@ -678,7 +569,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		if( State == BattleTech::State::TAG )
 			e.Text = from->ShortFullName() + std::string(count?" is using TAG.":" is not using TAG.");
 		else
-			e.Text = from->ShortFullName() + std::string(" is firing ") + Num::ToString((int)count) + std::string(" weapons.");
+			e.Text = from->ShortFullName() + std::string(" is firing ") + Num::ToString((int)count) + std::string((count == 1)?" weapon.":" weapons." );
 		Events.push( e );
 		
 		Event torso( from );
@@ -752,6 +643,21 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			if( (hit_roll < difficulty) && (eq->Weapon->Type == HMWeapon::MISSILE_STREAK) )
 				fire_count = 0;
 			
+			if( eq->Weapon->AmmoPerTon )
+			{
+				for( uint8_t j = 0; j < fire_count; j ++ )
+					from->SpendAmmo( eq->ID );
+			}
+			else if( eq->Weapon->Type == HMWeapon::ONE_SHOT )
+			{
+				eq->Jammed = true;
+				
+				Event e( from );
+				e.Duration = 0.f;
+				e.ShowEquipment( eq );
+				Events.push( e );
+			}
+			
 			Event e( from, target );
 			e.Misc = (eq->Weapon->ClusterWeaponSize > 1) ? eq->Weapon->ClusterWeaponSize : fire_count;
 			if( hit_roll < difficulty )
@@ -777,18 +683,11 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				e.Sound = eq->Weapon->Sound;
 				e.Effect = eq->Weapon->Effect;
 				e.Loc = eq->Location->Loc;
+				e.ShowStat( BattleTech::Stat::HEAT_ADD, eq->Weapon->Heat * fire_count );
 			}
 			else if( eq->Weapon->Type == HMWeapon::MISSILE_STREAK )
 				e.Text += "  Streak held fire instead of missing.";
 			Events.push( e );
-			
-			if( eq->Weapon->AmmoPerTon )
-			{
-				for( uint8_t j = 0; j < fire_count; j ++ )
-					from->SpendAmmo( eq->ID );
-			}
-			else if( eq->Weapon->Type == HMWeapon::ONE_SHOT )
-				eq->Jammed = true;
 			
 			if( (hit_roll >= difficulty) && ! target->Destroyed() )
 			{
@@ -914,6 +813,8 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 						e.Text = lr.String() + std::string(" for ") + damage_str + std::string(".");
 						e.Loc = lr.Loc->Loc;
 						e.Arc = hit_arc;
+						if( eq->Weapon->Flamer )
+							e.ShowStat( BattleTech::Stat::HEAT_ADD, eq->Weapon->Flamer );
 						Events.push( e );
 						
 						if( damage )
@@ -923,7 +824,14 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 							break;
 						
 						if( eq->Weapon->Narc )
+						{
 							lr.Loc->Narced = true;
+							
+							Event e2( target );
+							e2.ShowHealth( lr.Loc->Loc, BattleTech::Arc::STRUCTURE );
+							e2.ShowStat( BattleTech::Stat::NARC );
+							Events.push( e2 );
+						}
 					}
 					else if( eq->Weapon->HitSound.length() && ! eq->Weapon->TAG )
 					{
@@ -932,7 +840,10 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 						e.Misc = eq->Weapon->Effect;
 						e.Sound = eq->Weapon->HitSound;
 						if( eq->Weapon->Flamer )
+						{
 							e.Text = std::string("Adding ") + Num::ToString((int)(eq->Weapon->Flamer)) + std::string(" heat to target.");
+							e.ShowStat( BattleTech::Stat::HEAT_ADD, eq->Weapon->Flamer );
+						}
 						Events.push( e );
 					}
 					
@@ -943,7 +854,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					{
 						target->Tagged = true;
 						
-						// NOTE: SpottingWithoutTAG should never be true here because WeaponsToFire is client-side, but check just in case. 
+						// NOTE: SpottingWithoutTAG should never be true here because WeaponsToFire is client-side, but check just in case.
 						int8_t spotted = from->WeaponRollNeeded( target ) + 1 - (from->SpottingWithoutTAG() ? 1 : 0) - from->GunnerySkill - from->HeatFire;
 						
 						if( spotted < target->Spotted )
@@ -972,12 +883,13 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			
 			if( hit_roll <= jam_on )
 			{
+				eq->Jammed = true;
+				
 				Event e( from );
 				e.Sound = "w_jam.wav";
 				e.Text = eq->Weapon->Name + std::string(" is jammed!");
+				e.ShowEquipment( eq );
 				Events.push( e );
-				
-				eq->Jammed = true;
 				
 				// Rotary AC explodes one round of ammo if critical hit while jammed.
 				if( eq->Weapon->RapidFire > 2 )
@@ -1217,6 +1129,14 @@ void BattleTechServer::AcceptedClient( ConnectedClient *client )
 	Packet change_state( Raptor::Packet::CHANGE_STATE );
 	change_state.AddInt( State );
 	client->Send( &change_state );
+	
+	if( TeamTurns.size() )
+	{
+		Packet team_turn( BattleTech::Packet::TEAM_TURN );
+		team_turn.AddUChar( TeamTurns.front() );
+		team_turn.AddUInt( 0 );
+		client->Send( &team_turn );
+	}
 }
 
 
@@ -1233,7 +1153,6 @@ void BattleTechServer::ChangeState( int state )
 		TeamTurns.pop();
 	UnmovedUnits.clear();
 	UnitTurn = 0;
-	UnitCheckedMASC = false;
 	
 	bool update = true;  // FIXME: Should this only happen for some phases?
 	int8_t update_precision = (State == BattleTech::State::SETUP) ? 0 : -127;  // Avoid spoiling the surprise of a failed PSR roll before events show it happen.
@@ -1414,6 +1333,229 @@ void BattleTechServer::Update( double dt )
 }
 
 
+bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
+{
+	if( State == BattleTech::State::SETUP )
+		return true;
+	
+	// If they failed a MASC/Supercharger roll this turn, their speed is still MASC/Supercharger.
+	bool already_declared = mech->MoveSpeed;
+	if( already_declared )
+		speed = mech->MoveSpeed;
+	else
+		mech->MoveSpeed = speed;
+	
+	if( ! already_declared )
+	{
+		if( mech->MASCTurns && (speed != BattleTech::Move::MASC) && (speed != BattleTech::Move::MASC_SUPERCHARGE) )
+			mech->MASCTurns --;
+		if( mech->SuperchargerTurns && (speed != BattleTech::Move::SUPERCHARGE) && (speed != BattleTech::Move::MASC_SUPERCHARGE) )
+			mech->SuperchargerTurns --;
+	}
+	
+	mech->Attack = 0;
+	mech->Defense = 0;
+	
+	if( speed == BattleTech::Move::STOP )
+	{
+		Event e( mech );
+		e.Effect = BattleTech::Effect::BLINK;
+		e.Text = mech->ShortFullName() + std::string(" is not moving.");
+		e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
+		Events.push( e );
+	}
+	else if( speed == BattleTech::Move::WALK )
+	{
+		mech->Attack = 1;
+		
+		if( ! already_declared )
+			mech->Heat += 1;
+		
+		if( stand )
+			return true;
+		
+		Event e( mech );
+		e.Effect = BattleTech::Effect::BLINK;
+		e.Sound = "m_walk.wav";
+		e.Text = mech->ShortFullName() + std::string(" is walking.");
+		e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
+		Events.push( e );
+	}
+	else if( speed == BattleTech::Move::RUN )
+	{
+		mech->Attack = 2;
+		
+		if( ! already_declared )
+			mech->Heat += 2;
+		
+		if( stand )
+			return true;
+		
+		Event e( mech );
+		e.Effect = BattleTech::Effect::BLINK;
+		e.Sound = "m_run.wav";
+		e.Text = mech->ShortFullName() + std::string(" is running.");
+		e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
+		Events.push( e );
+	}
+	else if( (speed == BattleTech::Move::MASC) || (speed == BattleTech::Move::SUPERCHARGE) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
+	{
+		mech->Attack = 2;
+		
+		if( ! already_declared )
+		{
+			mech->Heat += 2;
+			
+			uint8_t masc_before_failed_check = 0;
+			
+			if( speed != BattleTech::Move::SUPERCHARGE ) // Used MASC.
+			{
+				mech->MASCTurns ++;
+				
+				uint8_t masc_need = 3;
+				if( mech->MASCTurns >= 5 )
+					masc_need = 99;
+				else if( mech->MASCTurns >= 4 )
+					masc_need = 11;
+				else if( mech->MASCTurns >= 3 )
+					masc_need = 7;
+				else if( mech->MASCTurns >= 2 )
+					masc_need = 5;
+				uint8_t masc_roll = Roll::Dice( 2 );
+				
+				Event e( mech );
+				e.Effect = BattleTech::Effect::BLINK;
+				if( masc_roll < masc_need )
+				{
+					e.Misc = BattleTech::RGB332::DARK_RED;
+					e.Duration = 1.f;
+				}
+				e.Sound = "m_run.wav";
+				e.Text = mech->ShortFullName() + std::string(" is using MASC.  Must roll ") + Num::ToString((int)masc_need)
+					+ std::string(" to avoid damage.  Rolled ") + Num::ToString((int)masc_roll) + std::string( (masc_roll >= masc_need) ? ": PASSED!" : ": FAILED!" );
+				e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
+				Events.push( e );
+				
+				if( masc_roll < masc_need )
+				{
+					masc_before_failed_check = mech->MASCDist( speed );
+					
+					for( uint8_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
+					{
+						if( mech->Locations[ i ].IsLeg )
+							mech->Locations[ i ].CriticalHits( 1 );
+					}
+				}
+			}
+			
+			if( speed != BattleTech::Move::MASC ) // Used Supercharger.
+			{
+				mech->SuperchargerTurns ++;
+				
+				uint8_t sc_need = 3;
+				if( mech->SuperchargerTurns >= 5 )
+					sc_need = 99;
+				else if( mech->SuperchargerTurns >= 4 )
+					sc_need = 11;
+				else if( mech->SuperchargerTurns >= 3 )
+					sc_need = 7;
+				else if( mech->SuperchargerTurns >= 2 )
+					sc_need = 5;
+				uint8_t sc_roll = Roll::Dice( 2 );
+				
+				Event e( mech );
+				e.Effect = BattleTech::Effect::BLINK;
+				if( sc_roll < sc_need )
+				{
+					e.Misc = BattleTech::RGB332::DARK_RED;
+					e.Duration = 1.f;
+				}
+				e.Sound = "m_run.wav";
+				e.Text = mech->ShortFullName() + std::string(" is using Supercharger.  Must roll ") + Num::ToString((int)sc_need)
+					+ std::string(" to avoid damage.  Rolled ") + Num::ToString((int)sc_roll) + std::string( (sc_roll >= sc_need) ? ": PASSED!" : ": FAILED!" );
+				e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
+				Events.push( e );
+				
+				if( sc_roll < sc_need )
+				{
+					if( ! masc_before_failed_check )
+						masc_before_failed_check = mech->MASCDist( speed );
+					
+					mech->Supercharger->HitWithEvent();
+					
+					uint8_t roll = Roll::Dice( 2 );
+					uint8_t hits = 0;
+					if( roll == 12 )
+						hits = 3;
+					else if( roll >= 10 )
+						hits = 2;
+					else if( roll >= 8 )
+						hits = 1;
+					
+					Event e( mech );
+					e.Text = std::string("Critical hit check rolled ") + Num::ToString(roll);
+					e.Text += std::string(" for ") + Num::ToString((int)hits) + std::string((hits == 1)?" Engine hit.":" Engine hits.");
+					Events.push( e );
+					
+					for( uint8_t i = 0; i < hits; i ++ )
+						mech->Engine->HitWithEvent();
+				}
+			}
+			
+			if( masc_before_failed_check )
+			{
+				// Immediately roll any PSRs caused by MASC damage.
+				while( mech->PSRs.size() )
+				{
+					std::string reason = mech->PSRs.front();
+					mech->PSRs.pop();
+					if( mech->Prone || mech->Destroyed() )
+						continue;
+					mech->PilotSkillCheck( reason );
+					mech->AutoFall = "";
+				}
+				
+				SendEvents();
+				
+				if( mech->Destroyed() || mech->Unconscious )
+				{
+					TookTurn( mech );
+					return false;
+				}
+				else if( mech->Prone || (mech->MASCDist() < masc_before_failed_check) )
+				{
+					UnitTurn = mech->ID;
+					
+					Packet update = Packet( Raptor::Packet::UPDATE );
+					update.AddChar( -127 ); // Precision
+					update.AddUInt( 1 );    // Number of Objects
+					update.AddUInt( mech->ID );
+					mech->AddToUpdatePacketFromServer( &update, -127 );
+					Net.SendAll( &update );
+					
+					return false;
+				}
+			}
+		}
+		else if( ! stand )
+		{
+			Event e( mech );
+			e.Effect = BattleTech::Effect::BLINK;
+			e.Sound = "m_run.wav";
+			if( speed == BattleTech::Move::MASC_SUPERCHARGE )
+				e.Text = mech->ShortFullName() + std::string(" is running with MASC and Supercharger." );
+			else if( speed == BattleTech::Move::SUPERCHARGE )
+				e.Text = mech->ShortFullName() + std::string(" is running with Supercharger." );
+			else
+				e.Text = mech->ShortFullName() + std::string(" is running with MASC." );
+			Events.push( e );
+		}
+	}
+	
+	return true;
+}
+
+
 bool BattleTechServer::MechTurn( const Mech *mech )
 {
 	if( UnitTurn )
@@ -1430,7 +1572,6 @@ void BattleTechServer::TookTurn( Mech *mech )
 		mech_turn = mech->ID;
 		mech->TookTurn = true;
 		UnitTurn = 0;
-		UnitCheckedMASC = false;
 		TeamTurns.pop();
 		UnmovedUnits[ mech->Team ].erase( mech );
 		

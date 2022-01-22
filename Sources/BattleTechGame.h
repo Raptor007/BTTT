@@ -13,6 +13,7 @@ class BattleTechGame;
 #include "Animation.h"
 #include "HexMap.h"
 #include "Event.h"
+#include "RecordSheet.h"
 
 
 class BattleTechGame : public RaptorGame
@@ -43,6 +44,8 @@ public:
 	void Update( double dt );
 	void PlayEvent( const Event *e );
 	void PlayEvent( const Event *e, double play_duration );
+	void ShowRecordSheet( const Mech *mech, double duration = 0. );
+	RecordSheet *GetRecordSheet( const Mech *mech = NULL );
 	
 	bool HandleEvent( SDL_Event *event );
 	bool HandleCommand( std::string cmd, std::vector<std::string> *params = NULL );
@@ -57,9 +60,13 @@ public:
 	bool Hotseat( void ) const;
 	bool FF( void ) const;
 	bool Admin( void );
+	bool ReadyToBegin( void );
+	uint8_t TeamsAlive( void ) const;
 	uint8_t MyTeam( void );
+	std::string TeamName( uint8_t team_num ) const;
 	Mech *GetMech( uint32_t mech_id );
 	Mech *SelectedMech( void );
 	Mech *TargetMech( void );
+	void GetPixel( const Pos3D *pos, int *x, int *y );
 	std::string PhaseName( int state = -1 ) const;
 };
