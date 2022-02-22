@@ -4,6 +4,7 @@
 
 #pragma once
 class HexBoard;
+class HexBoardAim;
 
 #include "PlatformSpecific.h"
 
@@ -14,12 +15,21 @@ class HexBoard;
 #include "TextBox.h"
 
 
-class HexBoard : public Layer
+class HexBoardAim
 {
 public:
 	ShotPath Path;
 	std::map<uint8_t,int8_t> WeaponsInRange;
 	std::set<MechMelee> PossibleMelee;
+	
+	void UpdateWeaponsInRange( const Mech *selected, const Mech *target, int state );
+	Packet *CreatePacket( const Mech *selected, const Mech *target, int state ) const;
+};
+
+
+class HexBoard : public HexBoardAim, public Layer
+{
+public:
 	Font *TurnFont;
 	MessageOverlay *MessageOutput;
 	TextBox *MessageInput;
@@ -34,6 +44,6 @@ public:
 	bool KeyDown( SDLKey key );
 	void ClearPath( bool remove_menu = true );
 	void RemoveWeaponMenu( void );
-	void UpdateWeaponsInRange( Mech *selected, Mech *target );
 	void RemoveSetupMenus( void ) const;
+	void UpdateWeaponsInRange( Mech *selected, const Mech *target );
 };

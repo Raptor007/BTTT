@@ -317,8 +317,7 @@ int8_t MechEquipment::ShotModifier( uint8_t range, bool stealth ) const
 		{
 			modifier ++;
 			
-			std::map<std::string,std::string>::const_iterator prone_1arm = mech->Data->Properties.find("prone_1arm");
-			if( (prone_1arm != mech->Data->Properties.end()) && ! Str::AsBool(prone_1arm->second) )
+			if( mech->Data->PropertyAsBool("prone_1arm",true) )
 				return 99;
 		}
 	}
@@ -390,12 +389,8 @@ uint8_t MechEquipment::ClusterHits( uint8_t roll, bool fcs, bool narc, bool ecm,
 		e.Text = ams->Name + std::string(" takes -4 from cluster roll ") + Num::ToString((int)roll);
 		
 		roll = std::max<int8_t>( 0, roll - 4 );
-		if( ams->Weapon->AmmoPerTon && (roll < 2) )
-		{
-			std::map<std::string,std::string>::const_iterator enhanced_ams = mech->Data->Properties.find("enhanced_ams");
-			if( (enhanced_ams == mech->Data->Properties.end()) || ! Str::AsBool(enhanced_ams->second) )
-				roll = 2;
-		}
+		if( ams->Weapon->AmmoPerTon && (roll < 2) && ! mech->Data->PropertyAsBool("enhanced_ams") )
+			roll = 2;
 		
 		if( roll )
 			e.Text += std::string(" to ") + Num::ToString((int)roll) + std::string((roll == 2)?" (minimum).":".");
@@ -498,8 +493,7 @@ void MechEquipment::Hit( bool directly, MechLocation *location )
 			e.ShowCritHit( this, location->Loc );
 			server->Events.push( e );
 			
-			std::map<std::string,std::string>::const_iterator engine_explosions = mech->Data->Properties.find("engine_explosions");
-			if( (engine_explosions != mech->Data->Properties.end()) && Str::AsBool(engine_explosions->second) )
+			if( mech->Data->PropertyAsBool("engine_explosions") )
 			{
 				Event e2( mech );
 				uint8_t roll = Roll::Dice( 2 );
@@ -1864,23 +1858,19 @@ MechLocationRoll Mech::LocationRoll( uint8_t arc, uint8_t table, bool leg_cover 
 	lr.Roll = Roll::Dice( dice );
 	lr.Crit = (dice == 2) && (lr.Roll == 2);
 	
-	if( lr.Crit )
+	if( lr.Crit && Data->PropertyAsBool("floating_crits") )
 	{
-		std::map<std::string,std::string>::const_iterator floating_crits = Data->Properties.find("floating_crits");
-		if( (floating_crits != Data->Properties.end()) && Str::AsBool(floating_crits->second) )
-		{
-			BattleTechServer *server = (BattleTechServer*) Raptor::Server;
-			
-			Event e( this );
-			e.Text = "Location roll 2 is Floating Critical.";
-			server->Events.push( e );
-			
+		BattleTechServer *server = (BattleTechServer*) Raptor::Server;
+		
+		Event e( this );
+		e.Text = "Location roll 2 is Floating Critical.";
+		server->Events.push( e );
+		
+		lr.Roll = Roll::Dice( dice );
+		
+		// Floating Criticals re-roll leg hits when the target is in partial cover.
+		while( leg_cover && HitLocation( lr.Arc, lr.Roll )->IsLeg )
 			lr.Roll = Roll::Dice( dice );
-			
-			// Floating Criticals re-roll leg hits when the target is in partial cover.
-			while( leg_cover && HitLocation( lr.Arc, lr.Roll )->IsLeg )
-				lr.Roll = Roll::Dice( dice );
-		}
 	}
 	
 	if( table == BattleTech::Melee::KICK )
@@ -2437,8 +2427,7 @@ bool Mech::ReadyAndAbleNoCache( int phase ) const
 	
 	if( phase == BattleTech::State::TAG )
 	{
-		std::map<std::string,std::string>::const_iterator skip_tag = Data->Properties.find("skip_tag");
-		if( (skip_tag != Data->Properties.end()) && Str::AsBool(skip_tag->second) )
+		if( Data->PropertyAsBool("skip_tag") )
 			return false;
 		
 		const MechEquipment *tag = NULL;
@@ -2504,7 +2493,9 @@ int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const M
 	if( ! path )
 	{
 		HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
-		p = map->Path( X, Y, target->X, target->Y );
+		uint8_t x, y;
+		GetPosition( &x, &y );
+		p = map->Path( x, y, target->X, target->Y );
 		path = &p;
 	}
 	
@@ -2612,7 +2603,7 @@ std::set<MechMelee> Mech::PhysicalAttacks( const Mech *target, int8_t modifier )
 			{
 				if( equip->Location != &(Locations[ i ]) )
 					continue;
-				if( equip->Weapon && (equip->Weapon->Defensive || equip->Weapon->TAG) )
+				if( equip->Weapon && equip->Weapon->Defensive )
 					continue;
 				if( equip->Fired )
 				{
@@ -2650,7 +2641,7 @@ std::set<MechMelee> Mech::PhysicalAttacks( const Mech *target, int8_t modifier )
 			{
 				if( equip->Location != &(Locations[ i ]) )
 					continue;
-				if( equip->Weapon && (equip->Weapon->Defensive || equip->Weapon->TAG) )
+				if( equip->Weapon && equip->Weapon->Defensive )
 					continue;
 				if( equip->Fired )
 				{
@@ -2874,17 +2865,20 @@ void Mech::GetPosition( uint8_t *x, uint8_t *y, uint8_t *facing ) const
 
 double Mech::RelativeAngle( uint8_t x, uint8_t y, int8_t twist ) const
 {
-	if( (X == x) && (Y == y) )
+	uint8_t my_x, my_y, facing;
+	GetPosition( &my_x, &my_y, &facing );
+	
+	if( (my_x == x) && (my_y == y) )
 		return 0.;
 	HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
 	if( ! map )
 		return 0.;
 	
-	Pos3D me = map->Center( X, Y );
+	Pos3D me = map->Center( my_x, my_y );
 	Pos3D them = map->Center( x, y );
 	Vec3D vec = them - me;
 	
-	double angle = Num::RadToDeg( Math2D::Angle( vec.X, vec.Y ) ) - ((Facing + twist) * 60.);
+	double angle = Num::RadToDeg( Math2D::Angle( vec.X, vec.Y ) ) - ((facing + twist) * 60.);
 	while( angle > 180. )
 		angle -= 360.;
 	while( angle <= -180. )
@@ -3294,10 +3288,11 @@ bool Mech::Step( uint8_t move )
 	if( (move == BattleTech::Move::REVERSE) && (MoveSpeed > BattleTech::Move::WALK) )
 		return false;
 	
-	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-	HexMap *map = game->Map();
+	HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
 	if( ! map )
 		return false;
+	
+	int state = ClientSide() ? Raptor::Game->State : Raptor::Server->State;
 	
 	uint8_t x, y, facing;
 	GetPosition( &x, &y, &facing );
@@ -3315,7 +3310,7 @@ bool Mech::Step( uint8_t move )
 	int cost = map->CostToEnter( next_x, next_y, here, (move == BattleTech::Move::REVERSE) );
 	if( ! cost )
 	{
-		if( JumpDist() || (game->State == BattleTech::State::SETUP) )
+		if( JumpDist() || (state == BattleTech::State::SETUP) )
 			cost = 99; // Make sure this path is only considered valid by jumping.
 		else
 			return false;
@@ -3331,7 +3326,7 @@ bool Mech::Step( uint8_t move )
 	Steps.back().Jump = 0;
 	Steps.back().Move = move;
 	
-	if( (game->State == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Move::INVALID) )
+	if( (state == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Move::INVALID) )
 	{
 		Steps.pop_back();
 		return false;
@@ -3401,8 +3396,7 @@ bool Mech::JumpTo( uint8_t next_x, uint8_t next_y, uint8_t next_facing )
 	if( Unconscious || Shutdown || Prone )
 		return false;
 	
-	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-	HexMap *map = game->Map();
+	HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
 	if( ! map )
 		return false;
 	
@@ -3423,7 +3417,8 @@ bool Mech::JumpTo( uint8_t next_x, uint8_t next_y, uint8_t next_facing )
 	Steps.back().Jump = map->HexDist( x, y, next_x, next_y );
 	Steps.back().Move = BattleTech::Move::JUMP;
 	
-	if( (game->State == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Move::INVALID) )
+	int state = ClientSide() ? Raptor::Game->State : Raptor::Server->State;
+	if( (state == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Move::INVALID) )
 	{
 		Steps.pop_back();
 		return false;
@@ -3455,8 +3450,7 @@ bool Mech::Reversed( void ) const
 
 uint8_t Mech::SpeedNeeded( bool final_position ) const
 {
-	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-	HexMap *map = game->Map();
+	HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
 	if( map )
 	{
 		uint8_t x, y;

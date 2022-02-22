@@ -224,7 +224,7 @@ build/$(ARCHDIR)RaptorEngine/%.o: ../RaptorEngine/%.cpp $(ENGINE_HEADERS)
 	@mkdir -p $(dir $@)
 	$(CC) -c $(AFLAGS) $(MFLAGS) $(OFLAGS) $(WFLAGS) $(XFLAGS) $(CFLAGS) $(foreach inc,$(INCLUDES),-I$(inc)) $(foreach def,$(DEF),-D$(def)) $< -o $@
 
-build/BTTT.res:
+build/BTTT.res: BTTT.rc
 	@mkdir -p $(dir $@)
 	windres BTTT.rc -O coff -o $@
 

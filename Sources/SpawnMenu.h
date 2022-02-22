@@ -5,8 +5,9 @@
 #pragma once
 class SpawnMenu;
 class SpawnMenuDropDown;
-class SpawnMenuCloseButton;
+class SpawnMenuSearchBox;
 class SpawnMenuJoinButton;
+class SpawnMenuCloseButton;
 
 #include "PlatformSpecific.h"
 
@@ -15,8 +16,8 @@ class SpawnMenuJoinButton;
 #include "Window.h"
 #include "Font.h"
 #include "LabelledButton.h"
-#include "ListBox.h"
 #include "DropDown.h"
+#include "TextBox.h"
 #include "Label.h"
 #include <map>
 #include <string>
@@ -26,6 +27,7 @@ class SpawnMenu : public Window
 {
 public:
 	SpawnMenuDropDown *MechList;
+	SpawnMenuSearchBox *SearchBox;
 	Label *MechDetails;
 	std::map<std::string,Label*> TeamLists;
 	std::map<std::string,SpawnMenuJoinButton*> TeamButtons;
@@ -53,14 +55,11 @@ public:
 };
 
 
-class SpawnMenuListBox : public ListBox
+class SpawnMenuSearchBox : public TextBox
 {
 public:
-	std::string Variable;
-	
-	SpawnMenuListBox( SDL_Rect *rect, Font *font, uint8_t align, int scroll_bar_size, std::string variable );
-	virtual ~SpawnMenuListBox();
-	void Update( void );
+	SpawnMenuSearchBox( SDL_Rect *rect, Font *font, uint8_t align );
+	virtual ~SpawnMenuSearchBox();
 	void Changed( void );
 };
 

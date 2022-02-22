@@ -10,6 +10,7 @@ class BattleTechServer;
 #include "RaptorServer.h"
 #include "Event.h"
 #include "HexMap.h"
+#include "BotAI.h"
 
 
 class BattleTechServer : public RaptorServer
@@ -20,6 +21,7 @@ public:
 	std::queue<uint8_t> TeamTurns;
 	std::map< uint8_t, std::set<Mech*> > UnmovedUnits;
 	uint32_t UnitTurn;
+	BotAI AI;
 	
 	BattleTechServer( std::string version );
 	virtual ~BattleTechServer();

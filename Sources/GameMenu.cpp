@@ -44,6 +44,9 @@ GameMenu::GameMenu( void )
 	
 	#define SPACING 7
 	
+	Hotseat = NULL;
+	AITeam = NULL;
+	
 	if( game->Admin() )
 	{
 		group = new GroupBox( &group_rect, "Game Options", small_font );
@@ -54,15 +57,38 @@ GameMenu::GameMenu( void )
 		rect.w = group_rect.w - rect.x * 2;
 		rect.h = ItemFont->GetAscent() + 2;
 		
-		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "hotseat", "Hotseat Mode" ) );
+		Hotseat = new GameMenuSvCheckBox( &rect, ItemFont, "hotseat", "Hotseat Mode" );
+		group->AddElement( Hotseat );
 		rect.y += rect.h + SPACING;
 		
 		if( (Raptor::Game->State <= BattleTech::State::SETUP) || (Raptor::Game->State == BattleTech::State::GAME_OVER) )
 		{
 			group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "mech_limit", "Limit to 1 Mech Per Player", "1", "0" ) );
 			rect.y += rect.h + SPACING;
+			/*
+			group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "teams", "Enable Third Team", "3", "2" ) );
+			rect.y += rect.h + SPACING;
+			*/
+			rect.h = ItemFont->GetAscent() + 6;
+			GameMenuSvDropDown *teams = new GameMenuSvDropDown( &rect, ItemFont, "teams" );
+			for( int i = 2; i <= 5; i ++ )
+				teams->AddItem( Num::ToString(i), std::string(" Number of Teams: ") + Num::ToString(i) );
+			teams->Update();
+			group->AddElement( teams );
+			rect.y += rect.h + SPACING;
 		}
 		
+		rect.h = ItemFont->GetAscent() + 6;
+		AITeam = new GameMenuSvDropDown( &rect, ItemFont, "ai_team" );
+		AITeam->AddItem( "0", " AI Team: None" );
+		int teams = game->Data.PropertyAsInt("teams",2);
+		for( int i = 1; i <= teams; i ++ )
+			AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
+		AITeam->Update();
+		group->AddElement( AITeam );
+		rect.y += rect.h + SPACING;
+		
+		rect.h = ItemFont->GetAscent() + 2;
 		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "engine_explosions", "Engine Explosions" ) );
 		rect.y += rect.h + SPACING;
 		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "prone_1arm", "One-Armed Prone Fire" ) );
@@ -371,6 +397,8 @@ void GameMenuCommandButton::Clicked( Uint8 button )
 GameMenuCheckBox::GameMenuCheckBox( SDL_Rect *rect, Font *font, std::string variable, std::string label, std::string true_str, std::string false_str )
 : CheckBox( rect, font, std::string(" ") + label, false, NULL, NULL, NULL, NULL, NULL, NULL )
 {
+	Name = variable;
+	
 	Red = 1.f;
 	Green = 1.f;
 	Blue = 1.f;
@@ -465,6 +493,18 @@ void GameMenuSvCheckBox::Changed( void )
 	info.AddString( Variable );
 	info.AddString( Checked ? TrueStr : FalseStr );
 	Raptor::Game->Net.Send( &info );
+	
+	GameMenu *gm = (GameMenu*) Raptor::Game->Layers.Find("GameMenu");
+	int teams = Raptor::Game->Data.PropertyAsInt("teams",2);
+	if( gm && gm->AITeam && (Variable == "teams") )
+	{
+		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+		teams = Str::AsInt( Checked ? TrueStr : FalseStr );
+		for( int i = gm->AITeam->Items.size(); i <= teams; i ++ )
+			gm->AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
+	}
+	else if( gm && gm->AITeam && (teams == 2) && (Variable == "hotseat") && (gm->AITeam->Value != "0") )
+		gm->AITeam->Select( "0" );  // FIXME: Prevent double sound.
 }
 
 
@@ -474,6 +514,8 @@ void GameMenuSvCheckBox::Changed( void )
 GameMenuDropDown::GameMenuDropDown( SDL_Rect *rect, Font *font, std::string variable )
 : DropDown( rect, font, Font::ALIGN_MIDDLE_LEFT, 0, NULL, NULL )
 {
+	Name = variable;
+	
 	Red = 0.f;
 	Green = 0.f;
 	Blue = 0.f;
@@ -497,4 +539,44 @@ void GameMenuDropDown::Changed( void )
 	
 	if( Sound )
 		Raptor::Game->Snd.Play( Sound );
+}
+
+
+// ---------------------------------------------------------------------------
+
+
+GameMenuSvDropDown::GameMenuSvDropDown( SDL_Rect *rect, Font *font, std::string variable )
+: GameMenuDropDown( rect, font, variable )
+{
+	Value = Raptor::Game->Data.PropertyAsString( variable );
+}
+
+
+GameMenuSvDropDown::~GameMenuSvDropDown()
+{
+}
+
+
+void GameMenuSvDropDown::Changed( void )
+{
+	if( Sound )
+		Raptor::Game->Snd.Play( Sound );
+	
+	Packet info = Packet( Raptor::Packet::INFO );
+	info.AddUShort( 1 );
+	info.AddString( Variable );
+	info.AddString( Value );
+	Raptor::Game->Net.Send( &info );
+	
+	GameMenu *gm = (GameMenu*) Raptor::Game->Layers.Find("GameMenu");
+	int teams = Raptor::Game->Data.PropertyAsInt("teams",2);
+	if( gm && gm->AITeam && (Variable == "teams") )
+	{
+		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+		teams = Str::AsInt( Value );
+		for( int i = gm->AITeam->Items.size(); i <= teams; i ++ )
+			gm->AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
+	}
+	else if( gm && gm->Hotseat && gm->Hotseat->Checked && (teams == 2) && (Variable == "ai_team") && Str::AsInt(Value) )
+		gm->Hotseat->Clicked();  // FIXME: Prevent double sound.
 }

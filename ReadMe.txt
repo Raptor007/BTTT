@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|            0.9.2 Beta (2022-01-22)            |
+|            0.9.3 Beta (2022-02-22)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -28,6 +28,8 @@ To play across the internet, the host must map TCP port 3050.
 Game Settings / Optional Rules:
 * Hotseat Mode: All players take their turns on the same computer.
 * Limit to 1 Mech Per Player: One Mech per connected player, or one per team in Hotseat.
+* Number of Teams: Allows more factions than the normal two.  Last team alive wins.
+* AI Team: Select a team to be controlled by AI rather than human players.
 * Engine Explosions: Destroyed engine explodes on roll of 10+. [BattleMech Manual p.47]
 * One-Armed Prone Fire: Prone with 1 arm may still fire torso. [BattleMech Manual p.30]
 * Enhanced Flamers: Flamers deal both heat and damage. [BattleMech Manual p.99]
@@ -63,6 +65,7 @@ You can create custom variants using HeavyMetal Pro and add them to the Mechs di
   http://www.heavymetalpro.com/HMPro_Features.htm
 
 Known Issues:
+* Standing up with 1MP using minimum movement rule should still allow choosing facing.
 * Dropping to prone move is not implemented; Mechs can only go prone by falling.
 * Cannot choose HE or ER ammo for ATM.
 * Cannot choose cluster ammo for LB-X AC.
@@ -101,6 +104,12 @@ Troubleshooting:
 * When starting the game, "Loading Mechs" is sometimes very slow.
  - Move BTTT to an SSD or remove some files from the Mechs folder.
 
+Version 0.9.3 Beta (2022-02-22):
+* Added rudimentary AI code so you can play against the computer.
+* Can preview to-hit rolls during Movement phase by right-clicking potential targets.
+* Mech variant list in spawn menu is now searchable.
+* The number of teams can now be changed in the setup menu.
+* Defined texture information for more Mechs.
 Version 0.9.2 Beta (2022-01-22):
 * Added Record Sheet info windows.  Press I to view for selected Mech, O for target.
 * Run/walk is now declared when standing.  Up arrow to stand running, down for walking.

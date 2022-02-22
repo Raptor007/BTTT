@@ -23,6 +23,7 @@ BattleTechServer::BattleTechServer( std::string version ) : RaptorServer( "BTTT"
 {
 	Port = 3050;
 	AnnouncePort = 3050;
+	MaxFPS = 10;
 	
 	UnitTurn = 0;
 }
@@ -60,6 +61,7 @@ void BattleTechServer::Started( void )
 	Data.Properties[ "tag" ] = "false";
 	Data.Properties[ "mech_limit" ] = "1";
 	Data.Properties[ "hotseat" ] = "false";
+	Data.Properties[ "ai_team" ] = "0";
 	
 	HexMap *map = new HexMap();
 	map->Randomize();
@@ -83,6 +85,8 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 	packet->Rewind();
 	PacketType type = packet->Type();
 	
+	uint16_t from_player_id = from_client ? from_client->PlayerID : 0;
+	
 	if( type == BattleTech::Packet::SPAWN_MECH )
 	{
 		// Ignore packets that arrive during the wrong phase.
@@ -99,9 +103,9 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		
 		Mech *m = new Mech();
 		
-		m->PlayerID = from_client->PlayerID;
+		m->PlayerID = from_player_id;
 		Player *p = Data.GetPlayer( m->PlayerID );
-		m->Team = p ? atoi( p->Properties["team"].c_str() ) : 0;
+		m->Team = p ? p->PropertyAsInt("team") : 0;
 		
 		m->SetVariant( v );
 		m->X = x;
@@ -120,17 +124,17 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		m->AddToInitPacket( &objects_add );
 		Net.SendAll( &objects_add );
 		
-		size_t mech_limit = atoi(Data.Properties["mech_limit"].c_str());
+		size_t mech_limit = Data.PropertyAsInt("mech_limit");
 		if( mech_limit )
 		{
-			bool hotseat = Str::AsBool(Data.Properties["hotseat"]);
+			bool limit_per_team = Data.PropertyAsBool("hotseat") || Data.PropertyAsInt("ai_team");
 			std::map<double,Mech*> mechs;
 			for( std::map<uint32_t,GameObject*>::iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
 			{
 				if( obj_iter->second->Type() == BattleTech::Object::MECH )
 				{
 					Mech *mech = (Mech*) obj_iter->second;
-					if( hotseat ? (mech->Team == m->Team) : (mech->PlayerID == from_client->PlayerID) )
+					if( limit_per_team ? (mech->Team == m->Team) : (mech->PlayerID == from_player_id) )
 						mechs[ mech->Lifetime.ElapsedSeconds() * -1. ] = mech;
 				}
 			}
@@ -545,7 +549,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		if( ! MechTurn( from ) )
 			return true;
 		
-		bool enhanced_flamers = Str::AsBool(Data.Properties["enhanced_flamers"]);
+		bool enhanced_flamers = Data.PropertyAsBool("enhanced_flamers");
 		
 		from->TorsoTwist = packet->NextChar();
 		from->TurnedArm  = packet->NextChar();
@@ -616,14 +620,15 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			if( (! eq) || (! eq->Weapon) )
 				continue;
 			
-			if( fire_count && eq->Weapon->AmmoPerTon )
+			if( eq->Weapon->AmmoPerTon )
 			{
 				uint16_t total_ammo = from->TotalAmmo( eq->ID );
 				if( total_ammo < fire_count )
 					fire_count = total_ammo;
-				if( ! fire_count )
-					continue;
 			}
+			
+			if( ! fire_count )
+				continue;
 			
 			eq->Fired += fire_count;
 			
@@ -1076,8 +1081,8 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		uint8_t x = packet->NextUChar();
 		uint8_t y = packet->NextUChar();
 		
-		Player *from_player = Data.GetPlayer( from_client->PlayerID );
-		uint8_t from_team = from_player ? atoi( from_player->Properties["team"].c_str() ) : 0;
+		Player *from_player = Data.GetPlayer( from_player_id );
+		uint8_t from_team = from_player ? from_player->PropertyAsInt("team") : 0;
 		
 		for( std::map<uint16_t,Player*>::const_iterator player = Data.Players.begin(); player != Data.Players.end(); player ++ )
 		{
@@ -1090,10 +1095,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			e.Misc = BattleTech::RGB332::WHITE;
 			e.Sound = "i_nav.wav";
 			
-			uint8_t player_team = 0;
-			std::map<std::string,std::string>::const_iterator team = player->second->Properties.find("team");
-			if( team != player->second->Properties.end() )
-				player_team = atoi( team->second.c_str() );
+			uint8_t player_team = player->second->PropertyAsInt("team");
 			if( player_team && (player_team != from_team) )
 			{
 				// Don't show attention markers to the enemy team during play.
@@ -1220,7 +1222,14 @@ void BattleTechServer::ChangeState( int state )
 				std::random_shuffle( Initiative.begin(), Initiative.end() );
 				
 				Event e;
-				e.Text = TeamName(*(Initiative.rbegin())) + std::string(" has won the initiative roll, so ") + TeamName(*(Initiative.begin())) + std::string(" must move first.");
+				if( Initiative.size() == 2 )
+					e.Text = TeamName(*(Initiative.rbegin())) + std::string(" has won the initiative roll, so ") + TeamName(*(Initiative.begin())) + std::string(" must move first.");
+				else
+				{
+					e.Text = std::string("Random initiative order: ") + TeamName(*(Initiative.begin()));
+					for( std::vector<uint8_t>::const_iterator turn = Initiative.begin() + 1; turn != Initiative.end(); turn ++ )
+						e.Text += std::string(", ") + TeamName(*turn);
+				}
 				Events.push( e );
 			}
 		}
@@ -1322,6 +1331,8 @@ void BattleTechServer::ChangeState( int state )
 	
 	SendEvents();
 	
+	AI.BeginPhase( state );
+	
 	if( state > BattleTech::State::SETUP )
 		TookTurn();
 }
@@ -1330,6 +1341,7 @@ void BattleTechServer::ChangeState( int state )
 void BattleTechServer::Update( double dt )
 {
 	RaptorServer::Update( dt );
+	AI.Update( dt );
 }
 
 
@@ -1589,6 +1601,8 @@ void BattleTechServer::TookTurn( Mech *mech )
 		team_turn.AddUChar( TeamTurns.front() );
 		team_turn.AddUInt( mech_turn );
 		Net.SendAll( &team_turn );
+		
+		AI.BeginTurn();
 	}
 	else
 	{
@@ -1635,11 +1649,7 @@ double BattleTechServer::SendEvents( void )
 
 std::string BattleTechServer::TeamName( uint8_t team_num ) const
 {
-	std::map<std::string,std::string>::const_iterator name = Data.Properties.find( std::string("team") + Num::ToString((int)team_num) );
-	if( name != Data.Properties.end() )
-		return name->second;
-	
-	return std::string("Team ") + Num::ToString((int)team_num);
+	return Data.PropertyAsString( std::string("team") + Num::ToString((int)team_num), (std::string("Team ") + Num::ToString((int)team_num)).c_str() );
 }
 
 
@@ -1657,12 +1667,5 @@ HexMap *BattleTechServer::Map( void )
 
 bool BattleTechServer::FF( void ) const
 {
-	std::map<std::string,std::string>::const_iterator ff = Data.Properties.find("ff");
-	if( ff != Data.Properties.end() )
-	{
-		if( Str::AsBool(ff->second) )
-			return true;
-	}
-	
-	return false;
+	return Data.PropertyAsBool("ff");
 }

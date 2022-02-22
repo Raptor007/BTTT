@@ -1037,6 +1037,14 @@
 				>
 			</File>
 			<File
+				RelativePath=".\Sources\BotAI.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\Sources\BotAI.h"
+				>
+			</File>
+			<File
 				RelativePath=".\Sources\Event.cpp"
 				>
 			</File>

@@ -8,6 +8,7 @@
 #include "HexBoard.h"
 #include "GroupBox.h"
 #include "Num.h"
+#include <cctype>
 
 
 SpawnMenu::SpawnMenu( void )
@@ -24,7 +25,7 @@ SpawnMenu::SpawnMenu( void )
 		for( std::map<std::string,Variant>::const_iterator var = game->Variants.begin(); var != game->Variants.end(); var ++ )
 		{
 			int match = 0;
-			for( ; mech[ match ] == var->first[ match ]; match ++ ) {}
+			for( ; tolower(mech[ match ]) == tolower(var->first[ match ]); match ++ ) {}
 			if( match > best_match )
 			{
 				game->Cfg.Settings["mech"] = var->first;
@@ -33,11 +34,7 @@ SpawnMenu::SpawnMenu( void )
 		}
 	}
 	
-	int teams = 2;
-	std::map<std::string,std::string>::const_iterator teams_iter = game->Data.Properties.find("teams");
-	if( teams_iter != game->Data.Properties.end() )
-		teams = atoi( teams_iter->second.c_str() );
-	
+	int teams = game->Data.PropertyAsInt("teams",2);
 	int teams_w = 20 + 110 * teams + 10 * (teams - 1);
 	
 	Rect.w = 390 + teams_w;
@@ -97,10 +94,9 @@ SpawnMenu::SpawnMenu( void )
 	group = new GroupBox( &group_rect, "and Select Your BattleMech ", small_font );
 	AddElement( group );
 	
+	/*
 	rect.x = 10;
 	rect.y = 10 + group->TitleFont->GetAscent();
-	
-	/*
 	rect.w = (group_rect.w - rect.x * 3) / 2;
 	rect.h = small_font->GetHeight();
 	SpawnMenuDropDown *gunnery = new SpawnMenuDropDown( &rect, small_font, Font::ALIGN_MIDDLE_CENTER, 0, "gunnery" );
@@ -118,6 +114,21 @@ SpawnMenu::SpawnMenu( void )
 	
 	rect.y += rect.h;
 	*/
+	
+	rect.x = 7;
+	rect.y = 5 + group->TitleFont->GetAscent();
+	rect.w = group_rect.w - 10;
+	rect.h = small_font->GetLineSkip();
+	Label *search = new Label( &rect, "Search:", small_font, Font::ALIGN_MIDDLE_LEFT );
+	search->SizeToText();
+	group->AddElement( search );
+	
+	rect.x = search->Rect.x + search->Rect.w + 3;
+	rect.w = group_rect.w - rect.x - 5;
+	SearchBox = new SpawnMenuSearchBox( &rect, small_font, Font::ALIGN_MIDDLE_LEFT );
+	group->AddElement( SearchBox );
+	
+	rect.y += rect.h + 5;
 	
 	rect.x = 5;
 	rect.w = group_rect.w - 10;
@@ -221,11 +232,7 @@ bool SpawnMenu::KeyDown( SDLKey key )
 	}
 	else if( (key >= SDLK_F1) && (key <= SDLK_F15) )
 	{
-		int teams = 2;
-		std::map<std::string,std::string>::const_iterator teams_iter = Raptor::Game->Data.Properties.find("teams");
-		if( teams_iter != Raptor::Game->Data.Properties.end() )
-			teams = atoi( teams_iter->second.c_str() );
-		
+		int teams = Raptor::Game->Data.PropertyAsInt("teams",2);
 		int team = key + 1 - SDLK_F1;
 		if( team > teams )
 			return false;
@@ -269,6 +276,9 @@ bool SpawnMenu::MouseDown( Uint8 button )
 		
 		return true;
 	}
+	
+	if( (button == SDL_BUTTON_LEFT) && SearchBox->IsSelected() )
+		SearchBox->Container->Selected = NULL;
 	
 	Draggable = (button == SDL_BUTTON_LEFT);
 	return Window::MouseDown( button );
@@ -379,21 +389,13 @@ void SpawnMenu::UpdateTeams( void )
 	
 	for( std::map<uint16_t,Player*>::const_iterator player = Raptor::Game->Data.Players.begin(); player != Raptor::Game->Data.Players.end(); player ++ )
 	{
-		std::map<std::string,std::string>::const_iterator team = player->second->Properties.find( "team" );
-		if( team != player->second->Properties.end() )
-		{
-			std::map<std::string,Label*>::iterator list = TeamLists.find( team->second );
-			if( list != TeamLists.end() )
-				list->second->LabelText += player->second->Name + std::string("\n");
-		}
+		std::map<std::string,Label*>::iterator list = TeamLists.find( player->second->PropertyAsString("team") );
+		if( list != TeamLists.end() )
+			list->second->LabelText += player->second->Name + std::string("\n");
 	}
 	
 	for( std::map<std::string,SpawnMenuJoinButton*>::iterator button = TeamButtons.begin(); button != TeamButtons.end(); button ++ )
-	{
-		std::map<std::string,std::string>::const_iterator team_name = Raptor::Game->Data.Properties.find( std::string("team") + button->first );
-		if( team_name != Raptor::Game->Data.Properties.end() )
-			button->second->LabelText = team_name->second;
-	}
+		button->second->LabelText = Raptor::Game->Data.PropertyAsString( std::string("team") + button->first, (std::string("Team ") + button->first).c_str() );
 }
 
 
@@ -435,33 +437,71 @@ void SpawnMenuDropDown::Changed( void )
 // ---------------------------------------------------------------------------
 
 
-SpawnMenuListBox::SpawnMenuListBox( SDL_Rect *rect, Font *font, uint8_t align, int scroll_bar_size, std::string variable )
-: ListBox( rect, font, scroll_bar_size )
+SpawnMenuSearchBox::SpawnMenuSearchBox( SDL_Rect *rect, Font *font, uint8_t align )
+: TextBox( rect, font, align )
 {
-	TextAlign = align;
+	PassReturn = false;
+	PassEsc = false;
+	ReturnDeselects = true;
+	EscDeselects = true;
 	
-	Variable = variable;
+	SelectedRed = 1.f;
+	SelectedGreen = 1.f;
+	SelectedBlue = 0.f;
 }
 
 
-SpawnMenuListBox::~SpawnMenuListBox()
+SpawnMenuSearchBox::~SpawnMenuSearchBox()
 {
 }
 
 
-void SpawnMenuListBox::Update( void )
+void SpawnMenuSearchBox::Changed( void )
 {
-	Select( Raptor::Game->Cfg.SettingAsString( Variable ) );
-	ScrollToSelected();
-}
-
-
-void SpawnMenuListBox::Changed( void )
-{
-	Raptor::Game->Cfg.Settings[ Variable ] = SelectedValue();
+	SpawnMenuDropDown *mech_list = ((SpawnMenu*)( Container->Container ))->MechList;
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	
-	if( Variable == "mech" )
-		((SpawnMenu*)( Container->Container ))->Update();
+	std::list<std::string> words = Str::SplitToList( Text, " " );
+	
+	mech_list->Clear();
+	for( std::map<std::string,Variant>::const_iterator var = game->Variants.begin(); var != game->Variants.end(); var ++ )
+	{
+		bool match = true;
+		for( std::list<std::string>::const_iterator word = words.begin(); word != words.end(); word ++ )
+		{
+			if( word->length() && (Str::FindInsensitive( var->first, *word ) < 0) )
+				match = false;
+		}
+		
+		if( match )
+			mech_list->AddItem( var->first, var->first );
+	}
+	
+	// If the previously selected variant does not match this search, select something that does.
+	std::string mech = game->Cfg.SettingAsString("mech");
+	if( mech_list->Items.size() && (mech_list->FindItem(mech) < 0) )
+	{
+		int best_index = 0;
+		int best_match = -1;
+		for( size_t i = 0; i < mech_list->Items.size(); i ++ )
+		{
+			const char *item = mech_list->Items[ i ].Value.c_str();
+			int match = 0;
+			for( ; tolower(mech[ match ]) == tolower(item[ match ]); match ++ ) {}
+			if( match > best_match )
+			{
+				best_match = match;
+				best_index = i;
+			}
+		}
+		
+		mech_list->Select( best_index );
+	}
+	
+	mech_list->Update();
+	
+	if( ! mech_list->Items.size() )
+		mech_list->LabelText = "";
 }
 
 

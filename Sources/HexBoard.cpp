@@ -106,6 +106,8 @@ void HexBoard::Draw( void )
 	else
 		return;
 	
+	uint8_t my_team = game->MyTeam();
+	
 	Mech *selected = game->SelectedMech();
 	Mech *target = game->TargetMech();
 	
@@ -116,8 +118,8 @@ void HexBoard::Draw( void )
 		if( obj_iter->second->Type() == BattleTech::Object::MECH )
 		{
 			const Mech *mech = (const Mech*) obj_iter->second;
-			if( game->TeamTurn && (game->TeamTurn == game->MyTeam()) && ! playing_events
-			&& (mech->Team == game->MyTeam()) && mech->ReadyAndAble() && (mech != selected) )
+			if( game->TeamTurn && (game->TeamTurn == my_team) && ! playing_events
+			&& (mech->Team == my_team) && mech->ReadyAndAble() && (mech != selected) )
 			{
 				uint8_t x, y;
 				mech->GetPosition( &x, &y );
@@ -131,11 +133,11 @@ void HexBoard::Draw( void )
 		uint8_t x, y;
 		selected->GetPosition( &x, &y );
 		
-		float a = ((game->TeamTurn == game->MyTeam()) || ! game->TeamTurn) ? 0.9f : 0.6f;
+		float a = ((game->TeamTurn == my_team) || ! game->TeamTurn) ? 0.9f : 0.6f;
 		
 		if( selected->Destroyed() )
 			map->DrawHexOutline( x, y, 3.f, 0.5f,0.5f,0.5f,a );
-		else if( selected->Team == game->MyTeam() )
+		else if( selected->Team == my_team )
 		{
 			if( selected->Ready() )
 				map->DrawHexOutline( x, y, 3.f, 0.0f,1.0f,0.0f,a );
@@ -153,7 +155,7 @@ void HexBoard::Draw( void )
 		if( Path.size() )
 		{
 			float r = 0.0f, g = 0.0f, b = 0.7f, a = 0.4f;
-			if( selected->ReadyAndAble() && (selected->Team == game->TeamTurn) && (selected->Team == game->MyTeam())
+			if( selected->ReadyAndAble() && (selected->Team == game->TeamTurn) && (selected->Team == my_team)
 			&& ((game->State == BattleTech::State::TAG)
 			 || (game->State == BattleTech::State::WEAPON_ATTACK)
 			 || (game->State == BattleTech::State::PHYSICAL_ATTACK) ) )
@@ -317,7 +319,7 @@ void HexBoard::Draw( void )
 	{
 		status = "Press Enter to send chat message or Esc to cancel.";
 	}
-	else if( (game->State == BattleTech::State::MOVEMENT) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == game->MyTeam()) )
+	else if( (game->State == BattleTech::State::MOVEMENT) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == my_team) )
 	{
 		uint8_t move_mode = selected->MoveSpeed ? selected->MoveSpeed : selected->SpeedNeeded(true);
 		uint8_t step_cost = selected->StepCost();
@@ -369,7 +371,7 @@ void HexBoard::Draw( void )
 		if( selected->Shutdown || selected->Unconscious )
 			status = selected->ShortName() + std::string(" cannot move this turn.  Press Enter to skip.");
 	}
-	else if( (game->State >= BattleTech::State::TAG) && (game->State <= BattleTech::State::PHYSICAL_ATTACK) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == game->MyTeam()) )
+	else if( (game->State >= BattleTech::State::TAG) && (game->State <= BattleTech::State::PHYSICAL_ATTACK) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == my_team) )
 	{
 		if( ! selected->ReadyAndAble() )
 			status = selected->ShortName() + std::string(" cannot ") + game->PhaseName() + std::string(" this turn.  Press Enter to skip.");
@@ -382,11 +384,15 @@ void HexBoard::Draw( void )
 	}
 	else if( (game->State == BattleTech::State::SETUP) || ! playing_events )
 	{
+		bool hotseat = game->Hotseat();
+		bool ai = game->Data.PropertyAsInt("ai_team");
 		status = game->PhaseName();
-		if( game->TeamTurn && game->MyTeam() )
+		if( game->TeamTurn && my_team )
 		{
-			if( ! game->Hotseat() )
-				status += (game->TeamTurn == game->MyTeam()) ? " (your team)" : " (enemy team)";
+			if( (game->TeamTurn == my_team) && ! hotseat )
+				status += " (your team)";
+			else if( (game->TeamsAlive() <= 2) && ! hotseat )
+				status += " (enemy team)";
 			else
 			{
 				std::string team_name = game->TeamName( game->TeamTurn );
@@ -407,21 +413,21 @@ void HexBoard::Draw( void )
 			}
 			else if( game->Layers.Find("SpawnMenu") )
 			{
-				if( game->MyTeam() )
+				if( my_team )
 					status = "Select a BattleMech, then right-click to drop.";
 				else
 					status = "Select a team and BattleMech, then right-click to drop.";
 			}
 			else if( selected && (selected->PlayerID == game->PlayerID) )
 			{
-				if( game->Hotseat() && ! game->ReadyToBegin() )
+				if( (hotseat || ai) && ! game->ReadyToBegin() )
 					status = "Press Tab to spawn for the other team.  When done, press Enter.";
 				else if( game->ReadyToBegin() )
 					status = "When everyone is ready to play, press Enter.";
 				else
 					status = "Use arrows to move spawn point and Enter to submit.";
 			}
-			else if( game->MyTeam() )
+			else if( my_team )
 				status = "Right-click to drop.  Press Tab to change team/Mech.";
 			else
 				status = "Press Tab to select a team and BattleMech.";
@@ -569,7 +575,7 @@ bool HexBoard::MouseDown( Uint8 button )
 			// Close the SpawnMenu after we drop a 'Mech so we can use arrow keys to move it.
 			RemoveSetupMenus();
 		}
-		else if( selected && selected->ReadyAndAble() )
+		else if( selected )
 		{
 			uint8_t x = 0, y = 0, facing = BattleTech::Dir::UP;
 			selected->GetPosition( &x, &y, &facing );
@@ -584,16 +590,17 @@ bool HexBoard::MouseDown( Uint8 button )
 				target = NULL;
 			game->TargetID = target ? target->ID : 0;
 			
-			if( target
-			&& ((game->State == BattleTech::State::WEAPON_ATTACK)
-			 || (game->State == BattleTech::State::PHYSICAL_ATTACK)
-			 || (game->State == BattleTech::State::TAG)) )
+			if( target )
 			{
 				UpdateWeaponsInRange( selected, target );
-				game->Snd.Play( game->Res.GetSound("i_select.wav") );
+				
+				if( selected->ReadyAndAble()
+				&& ((game->State == BattleTech::State::WEAPON_ATTACK)
+				 || (game->State == BattleTech::State::PHYSICAL_ATTACK)
+				 || (game->State == BattleTech::State::TAG)) )
+					game->Snd.Play( game->Res.GetSound("i_select.wav") );
 			}
-			
-			if( ! game->TargetID )
+			else
 				RemoveWeaponMenu();
 			
 			if( game->Cfg.SettingAsBool("debug") )
@@ -766,11 +773,7 @@ bool HexBoard::KeyDown( SDLKey key )
 	
 	else if( (key >= SDLK_F1) && (key <= SDLK_F15) && (game->State == BattleTech::State::SETUP) )
 	{
-		int teams = 2;
-		std::map<std::string,std::string>::const_iterator teams_iter = game->Data.Properties.find("teams");
-		if( teams_iter != game->Data.Properties.end() )
-			teams = atoi( teams_iter->second.c_str() );
-		
+		int teams = game->Data.PropertyAsInt("teams",2);
 		int team = key + 1 - SDLK_F1;
 		if( team > teams )
 			return false;
@@ -1149,23 +1152,64 @@ void HexBoard::RemoveWeaponMenu( void )
 }
 
 
-void HexBoard::UpdateWeaponsInRange( Mech *selected, Mech *target )
+void HexBoard::RemoveSetupMenus( void ) const
+{
+	Layer *spawn_menu = Raptor::Game->Layers.Find("SpawnMenu");
+	if( spawn_menu )
+		spawn_menu->Remove();
+	
+	Layer *game_menu = Raptor::Game->Layers.Find("GameMenu");
+	if( game_menu )
+		game_menu->Remove();
+}
+
+
+void HexBoard::UpdateWeaponsInRange( Mech *selected, const Mech *target )
+{
+	HexBoardAim::UpdateWeaponsInRange( selected, target, Raptor::Game->State );
+	
+	if( Raptor::Game->State == BattleTech::State::PHYSICAL_ATTACK )
+	{
+		selected->SelectedMelee.clear(); // FIXME: Remember previous choice?
+		
+		if( PossibleMelee.size() && ! selected->SelectedMelee.size() )
+			selected->SelectedMelee.insert( *(PossibleMelee.begin()) );
+	}
+	
+	RemoveSetupMenus();
+	
+	WeaponMenu *wm = (WeaponMenu*) Raptor::Game->Layers.Find("WeaponMenu");
+	if( ! wm )
+		Raptor::Game->Layers.Add( new WeaponMenu() );
+	else
+	{
+		wm->Update();
+		wm->MoveToTop();
+	}
+}
+
+
+// -----------------------------------------------------------------------------
+
+
+void HexBoardAim::UpdateWeaponsInRange( const Mech *selected, const Mech *target, int state )
 {
 	WeaponsInRange.clear();
 	
 	if( !(selected && target) )
 		return;
+	if( selected->Unconscious || selected->Shutdown )
+		return;
 	
-	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-	
-	if( (game->State == BattleTech::State::WEAPON_ATTACK)
-	||  (game->State == BattleTech::State::TAG) )
+	if( state != BattleTech::State::PHYSICAL_ATTACK )
 	{
 		for( size_t index = 0; index < selected->Equipment.size(); index ++ )
 		{
 			const MechEquipment *eq = &(selected->Equipment[ index ]);
 			
-			if( eq->Weapon && (eq->Weapon->TAG != (game->State == BattleTech::State::TAG)) )
+			if( eq->Weapon && eq->Weapon->TAG && (state == BattleTech::State::WEAPON_ATTACK) )
+				continue;
+			if( eq->Weapon && (! eq->Weapon->TAG) && (state == BattleTech::State::TAG) )
 				continue;
 			
 			int8_t difficulty = selected->WeaponRollNeeded( target, &Path, eq );
@@ -1174,7 +1218,7 @@ void HexBoard::UpdateWeaponsInRange( Mech *selected, Mech *target )
 				WeaponsInRange[ index ] = difficulty;
 		}
 	}
-	else if( game->State == BattleTech::State::PHYSICAL_ATTACK )
+	else
 	{
 		int8_t modifier = target->Defense + Path.Modifier;
 		
@@ -1191,35 +1235,166 @@ void HexBoard::UpdateWeaponsInRange( Mech *selected, Mech *target )
 			modifier --;
 		
 		PossibleMelee = selected->PhysicalAttacks( target, modifier );
-		
-		selected->SelectedMelee.clear(); // FIXME: Remember previous choice?
-		
-		if( PossibleMelee.size() && ! selected->SelectedMelee.size() )
-			selected->SelectedMelee.insert( *(PossibleMelee.begin()) );
-	}
-	else
-		return;
-	
-	RemoveSetupMenus();
-	
-	WeaponMenu *wm = (WeaponMenu*) game->Layers.Find("WeaponMenu");
-	if( ! wm )
-		game->Layers.Add( new WeaponMenu() );
-	else
-	{
-		wm->Update();
-		wm->MoveToTop();
 	}
 }
 
 
-void HexBoard::RemoveSetupMenus( void ) const
+Packet *HexBoardAim::CreatePacket( const Mech *selected, const Mech *target, int state ) const
 {
-	Layer *spawn_menu = Raptor::Game->Layers.Find("SpawnMenu");
-	if( spawn_menu )
-		spawn_menu->Remove();
+	uint8_t speed = (state == BattleTech::State::SETUP) ? (uint8_t) BattleTech::Move::JUMP : selected->SpeedNeeded(true);
+	if( (state == BattleTech::State::MOVEMENT) && selected->Steps.size() && (speed == BattleTech::Move::INVALID) )
+		return NULL;
+	else if( (state == BattleTech::State::MOVEMENT)
+	||      ((state == BattleTech::State::SETUP) && selected->Steps.size()) )
+	{
+		Packet *p = new Packet( BattleTech::Packet::MOVEMENT );
+		p->AddUInt( selected->ID );
+		p->AddUChar( speed );
+		p->AddUChar( selected->Steps.size() );
+		for( std::vector<MechStep>::const_iterator step = selected->Steps.begin(); step != selected->Steps.end(); step ++ )
+			p->AddUChar( step->Move );
+		
+		/*
+		if( state == BattleTech::State::MOVEMENT )
+			selected->MoveSpeed = speed;
+		
+		selected->Steps.clear();
+		*/
+		
+		return p;
+	}
+	else if( (state == BattleTech::State::WEAPON_ATTACK)
+	||       (state == BattleTech::State::TAG) )
+	{
+		std::map<uint8_t,int8_t> weapons;
+		if( target )
+		{
+			for( std::map<uint8_t,int8_t>::const_iterator weap = WeaponsInRange.begin(); weap != WeaponsInRange.end(); weap ++ )
+			{
+				std::map<uint8_t,uint8_t>::const_iterator fire = selected->WeaponsToFire.find( weap->first );
+				if( (fire != selected->WeaponsToFire.end()) && fire->second )
+					weapons[ weap->first ] = weap->second;
+			}
+		}
+		
+		uint8_t firing_arc = target ? selected->FiringArc( target->X, target->Y ) : (uint8_t) BattleTech::Arc::STRUCTURE;
+		
+		int8_t turned_arm = BattleTech::Loc::UNKNOWN;
+		bool arms_flipped = false;
+		if( (! selected->TorsoTwist) && (firing_arc == BattleTech::Arc::REAR) )
+		{
+			for( std::map<uint8_t,int8_t>::const_iterator weap = weapons.begin(); weap != weapons.end(); weap ++ )
+			{
+				const MechEquipment *eq = &(selected->Equipment[ weap->first ]);
+				if( eq->Location && eq->Location->IsArm() )
+				{
+					arms_flipped = true;
+					break;
+				}
+			}
+		}
+		else if( weapons.size() && (firing_arc == BattleTech::Arc::LEFT_SIDE) )
+			turned_arm = BattleTech::Loc::LEFT_ARM;
+		else if( weapons.size() && (firing_arc == BattleTech::Arc::RIGHT_SIDE) )
+			turned_arm = BattleTech::Loc::RIGHT_ARM;
+		
+		int8_t prone_fire = BattleTech::Loc::UNKNOWN;
+		if( selected->Prone && weapons.size() )
+		{
+			prone_fire = BattleTech::Loc::CENTER_TORSO;
+			for( std::map<uint8_t,int8_t>::const_iterator weap = weapons.begin(); weap != weapons.end(); weap ++ )
+			{
+				const MechEquipment *eq = &(selected->Equipment[ weap->first ]);
+				if( eq->Location && eq->Location->IsArm() )
+				{
+					prone_fire = eq->Location->Loc;
+					break;
+				}
+			}
+		}
+		
+		Packet *p = new Packet( BattleTech::Packet::SHOTS );
+		p->AddUInt( selected->ID );
+		p->AddChar( selected->TorsoTwist );
+		p->AddChar( turned_arm );
+		p->AddChar( prone_fire );
+		
+		uint8_t count_and_flags = weapons.size();
+		if( arms_flipped )
+			count_and_flags |= 0x80;
+		p->AddUChar( count_and_flags );
+		
+		for( std::map<uint8_t,int8_t>::const_iterator weap = weapons.begin(); weap != weapons.end(); weap ++ )
+		{
+			p->AddUInt( target->ID );
+			
+			const MechEquipment *eq = &(selected->Equipment[ weap->first ]);
+			uint8_t arc_and_flags = target->DamageArc( selected->X, selected->Y );
+			if( ! Path.LineOfSight )
+				arc_and_flags |= 0x80; // Indirect Fire
+			else if( Path.PartialCover )
+				arc_and_flags |= 0x40; // Leg Partial Cover
+			if( Path.TeamECMs.size() > Path.TeamECMs.count(selected->Team) )
+				arc_and_flags |= 0x20; // Within Friendly ECM
+			if( target->Narced() && (Path.LineOfSight || (target->Spotted < 99)) )
+				arc_and_flags |= 0x10; // NARC Cluster Bonus (with exceptions in MechEquipment::ClusterHits)
+			if( eq->WeaponFCS && ! eq->WeaponFCS->Damaged )
+				arc_and_flags |= 0x08; // Artemis IV FCS
+			
+			std::map<uint8_t,uint8_t>::const_iterator fire = selected->WeaponsToFire.find( weap->first );
+			uint8_t count = (fire != selected->WeaponsToFire.end()) ? fire->second : 0;
+			
+			p->AddUChar( arc_and_flags );
+			p->AddUChar( weap->first );
+			p->AddUChar( count );
+			p->AddChar( weap->second );
+			
+			/*
+			if( !(eq->Weapon && eq->Weapon->TAG) ) // TAG will only count as "fired" if it hits (reported in SPOT packet).
+				eq->Fired = weap->second;
+			*/
+		}
+		
+		if( target && Path.LineOfSight && (state == BattleTech::State::WEAPON_ATTACK) && selected->SpottingWithoutTAG() )
+		{
+			// Spot for Indirect Fire
+			
+			// NOTE: WeaponRollNeeded already adds +1 for SpottingWithoutTAG.
+			int8_t spotted = selected->WeaponRollNeeded( target, &Path ) + (weapons.size() ? 1 : 0) - selected->GunnerySkill - selected->HeatFire;
+			
+			p->AddUInt( target->ID );
+			p->AddChar( spotted );
+		}
+		else
+		{
+			p->AddUInt( 0 );
+			p->AddChar( 99 );
+		}
+		
+		return p;
+	}
+	else if( state == BattleTech::State::PHYSICAL_ATTACK )
+	{
+		Packet *p = new Packet( BattleTech::Packet::MELEE );
+		p->AddUInt( selected->ID );
+		if( target )
+		{
+			p->AddUChar( selected->SelectedMelee.size() );
+			for( std::set<MechMelee>::const_iterator chosen = selected->SelectedMelee.begin(); chosen != selected->SelectedMelee.end(); chosen ++ )
+			{
+				p->AddUInt( target->ID );
+				p->AddUChar( target->DamageArc( selected->X, selected->Y ) | (chosen->HitTable << 2) );
+				p->AddUChar( chosen->Attack );
+				p->AddChar( chosen->Difficulty );
+				p->AddUChar( chosen->Damage );
+				p->AddUChar( chosen->Limb );
+			}
+		}
+		else
+			p->AddUChar( 0 );
+		
+		return p;
+	}
 	
-	Layer *game_menu = Raptor::Game->Layers.Find("GameMenu");
-	if( game_menu )
-		game_menu->Remove();
+	return NULL;
 }

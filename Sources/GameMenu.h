@@ -6,8 +6,13 @@
 class GameMenu;
 class GameMenuCloseButton;
 class GameMenuDisconnectButton;
-class GameMenuReadyButton;
+class GameMenuEndButton;
+class GameMenuSpawnButton;
+class GameMenuCommandButton;
 class GameMenuCheckBox;
+class GameMenuSvCheckBox;
+class GameMenuDropDown;
+class GameMenuSvDropDown;
 
 #include "PlatformSpecific.h"
 
@@ -27,6 +32,8 @@ class GameMenu : public Window
 public:
 	Font *ItemFont;
 	LabelledButton *DefaultButton;
+	GameMenuSvCheckBox *Hotseat;
+	GameMenuSvDropDown *AITeam;
 	
 	GameMenu( void );
 	virtual ~GameMenu();
@@ -114,5 +121,14 @@ public:
 	
 	GameMenuDropDown( SDL_Rect *rect, Font *font, std::string variable );
 	virtual ~GameMenuDropDown();
+	virtual void Changed( void );
+};
+
+
+class GameMenuSvDropDown : public GameMenuDropDown
+{
+public:
+	GameMenuSvDropDown( SDL_Rect *rect, Font *font, std::string variable );
+	virtual ~GameMenuSvDropDown();
 	void Changed( void );
 };

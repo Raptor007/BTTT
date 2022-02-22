@@ -51,6 +51,7 @@ void BattleTechGame::SetDefaults( void )
 	Cfg.Settings[ "g_shader_enable" ] = "false";
 	Cfg.Settings[ "s_volume" ] = "0.3";
 	Cfg.Settings[ "sv_port" ] = "3050";
+	Cfg.Settings[ "sv_maxfps" ] = "10";
 	Cfg.Settings[ "host_address" ] = "www.raptor007.com:3050";
 	
 	if( Cfg.Settings[ "name" ] == "Name" )
@@ -867,10 +868,11 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 			else
 			{
 				int team_num = MyTeam();
-				std::map<std::string,std::string>::const_iterator team_iter = Data.Properties.find( std::string("team") + Num::ToString(team_num) );
-				std::string team_name = (team_iter != Data.Properties.end()) ? team_iter->second : "";
 				if( team_num )
+				{
+					std::string team_name = TeamName( team_num );
 					Console.Print( std::string("You are on team ") + Num::ToString(team_num) + (team_name.length() ? (std::string(": ") + team_name) : std::string(".")) );
+				}
 				else
 					Console.Print( "You are not on a team." );
 			}
@@ -976,7 +978,11 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 		uint32_t prev_selected = SelectedID;
 		
 		bool hotseat = Hotseat();
-		if( hotseat && MyTeam() )
+		
+		std::vector<int> ai_teams = Data.PropertyAsInts("ai_team");
+		bool ai_turn = (std::find( ai_teams.begin(), ai_teams.end(), TeamTurn ) != ai_teams.end());
+		
+		if( hotseat && (! ai_turn) && MyTeam() )
 		{
 			std::string team_str = Num::ToString((int)TeamTurn);
 			Data.Players[ PlayerID ]->Properties[ "team" ] = team_str;
@@ -1024,8 +1030,7 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 							const Player *other_owner = (mech->PlayerID == PlayerID) ? NULL : Data.GetPlayer( mech->PlayerID );
 							if( other_owner )
 							{
-								std::map<std::string,std::string>::const_iterator team_iter = other_owner->Properties.find("team");
-								uint8_t owner_team = (team_iter != other_owner->Properties.end()) ? atoi( team_iter->second.c_str() ) : 0;
+								uint8_t owner_team = other_owner->PropertyAsInt("team");
 								if( mech->Team != owner_team )
 									other_owner = NULL;
 							}
@@ -1053,8 +1058,7 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 							const Player *other_owner = (mech->PlayerID == PlayerID) ? NULL : Data.GetPlayer( mech->PlayerID );
 							if( other_owner )
 							{
-								std::map<std::string,std::string>::const_iterator team_iter = other_owner->Properties.find("team");
-								uint8_t owner_team = (team_iter != other_owner->Properties.end()) ? atoi( team_iter->second.c_str() ) : 0;
+								uint8_t owner_team = other_owner->PropertyAsInt("team");
 								if( mech->Team != owner_team )
 									other_owner = NULL;
 							}
@@ -1174,21 +1178,14 @@ HexMap *BattleTechGame::Map( void )
 
 bool BattleTechGame::Hotseat( void ) const
 {
-	std::map<std::string,std::string>::const_iterator hotseat = Data.Properties.find("hotseat");
-	if( hotseat != Data.Properties.end() )
-		return Str::AsBool(hotseat->second);
-	return false;
+	return Data.PropertyAsBool("hotseat");
 }
 
 
 bool BattleTechGame::FF( void ) const
 {
-	std::map<std::string,std::string>::const_iterator ff = Data.Properties.find("ff");
-	if( ff != Data.Properties.end() )
-	{
-		if( Str::AsBool(ff->second) )
-			return true;
-	}
+	if( Data.PropertyAsBool("ff") )
+		return true;
 	
 	// Allow friendly fire after all enemies are eliminated.
 	return TeamsAlive() < 2;
@@ -1200,17 +1197,12 @@ bool BattleTechGame::Admin( void )
 	if( Raptor::Server->IsRunning() )
 		return true;
 	
-	std::map<std::string,std::string>::const_iterator permissions = Raptor::Game->Data.Properties.find("permissions");
-	if( (permissions != Raptor::Game->Data.Properties.end()) && (permissions->second == "all") )
+	if( Data.PropertyAsString("permissions") == "all" )
 		return true;
 	
 	Player *p = Data.GetPlayer( PlayerID );
-	if( p )
-	{
-		std::map<std::string,std::string>::const_iterator admin = p->Properties.find("admin");
-		if( admin != p->Properties.end() )
-			return Str::AsBool( admin->second.c_str() );
-	}
+	if( p && p->PropertyAsBool("admin") )
+		return true;
 	
 	return false;
 }
@@ -1241,24 +1233,13 @@ uint8_t BattleTechGame::TeamsAlive( void ) const
 uint8_t BattleTechGame::MyTeam( void )
 {
 	Player *p = Data.GetPlayer( PlayerID );
-	if( p )
-	{
-		std::map<std::string,std::string>::const_iterator team = p->Properties.find("team");
-		if( team != p->Properties.end() )
-			return atoi( team->second.c_str() );
-	}
-	
-	return 0;
+	return p ? p->PropertyAsInt("team") : 0;
 }
 
 
 std::string BattleTechGame::TeamName( uint8_t team_num ) const
 {
-	std::map<std::string,std::string>::const_iterator name = Data.Properties.find( std::string("team") + Num::ToString((int)team_num) );
-	if( name != Data.Properties.end() )
-		return name->second;
-	
-	return "";
+	return Data.PropertyAsString( std::string("team") + Num::ToString((int)team_num), (std::string("Team ") + Num::ToString((int)team_num)).c_str() );
 }
 
 

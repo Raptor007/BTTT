@@ -45,13 +45,11 @@ void WeaponMenu::Draw( void )
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	if( Selected && Selected->ReadyAndAble() && (Selected->Team == game->TeamTurn) && (Selected->Team == game->MyTeam()) )
 	{
-		std::string title;
+		std::string title = game->PhaseName();
 		if( game->State == BattleTech::State::TAG )
 			title = "TAG Spotting";
-		else if( game->State == BattleTech::State::WEAPON_ATTACK )
-			title = "Weapon Attack";
-		else if( game->State == BattleTech::State::PHYSICAL_ATTACK )
-			title = "Physical Attack";
+		else if( game->State == BattleTech::State::MOVEMENT )
+			title = "Movement Phase";
 		ItemFont->DrawText( title, Rect.w/2 + 2, 7, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
 		ItemFont->DrawText( title, Rect.w/2,     5, Font::ALIGN_TOP_CENTER );
 	}
@@ -152,6 +150,7 @@ void WeaponMenu::UpdateWeapons( void )
 	short medium_range = 99;
 	short shortest_range = 99;
 	short min_range = 0;
+	bool show_checkboxes = (Selected->Team == game->MyTeam()) && ((game->State == BattleTech::State::WEAPON_ATTACK) || (game->State == BattleTech::State::TAG));
 	
 	for( std::map<uint8_t,uint8_t>::const_iterator weap = Selected->WeaponsToFire.begin(); weap != Selected->WeaponsToFire.end(); weap ++ )
 	{
@@ -250,7 +249,7 @@ void WeaponMenu::UpdateWeapons( void )
 				roll_label->Red = 0.5f;
 			rect.x += 30;
 			
-			if( Selected->Team == game->MyTeam() )
+			if( show_checkboxes )
 			{
 				if( eq->Weapon->RapidFire > 1 )
 					AddElement( new WeaponMenuDropDown( &rect, ItemFont, Selected, weap->first, weap->second, eq->Weapon->RapidFire ) );
