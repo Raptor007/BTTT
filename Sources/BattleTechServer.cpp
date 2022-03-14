@@ -59,7 +59,7 @@ void BattleTechServer::Started( void )
 	Data.Properties[ "floating_crits" ] = "false";
 	Data.Properties[ "skip_tag" ] = "false";
 	Data.Properties[ "tag" ] = "false";
-	Data.Properties[ "mech_limit" ] = "1";
+	Data.Properties[ "mech_limit" ] = "0";
 	Data.Properties[ "hotseat" ] = "false";
 	Data.Properties[ "ai_team" ] = "0";
 	
@@ -77,6 +77,221 @@ void BattleTechServer::Started( void )
 void BattleTechServer::Stopped( void )
 {
 	Data.Clear();
+}
+
+
+bool BattleTechServer::HandleCommand( std::string cmd, std::vector<std::string> *params )
+{
+	if( cmd == "mech" ) // Debugging tools.
+	{
+		if( params && params->size() && (params->at(0) != "list") )
+		{
+			GameObject *obj = Data.GetObject( Str::AsInt( params->at(0) ) );
+			if( obj && (obj->Type() == BattleTech::Object::MECH) )
+			{
+				Mech *mech = (Mech*) obj;
+				if( (params->size() < 2) || (params->at(1) == "info") )
+				{
+					Console->Print( Num::ToString((int)(mech->ID)) + std::string(": ") + mech->FullName() );
+					for( int i = 0; i < (int) mech->Equipment.size(); i ++ )
+					{
+						const MechEquipment *eq = &(mech->Equipment.at( i ));
+						Console->Print( std::string("|- ") + Num::ToString(i) + std::string(": ") + eq->Name );
+					}
+				}
+				else if( params->at(1) == "destroy" )
+				{
+					MechLocation *location = &(mech->Locations[ BattleTech::Loc::CENTER_TORSO ]);
+					if( params->size() >= 3 )
+					{
+						location = NULL;
+						for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
+						{
+							if( strcasecmp( params->at(2).c_str(), mech->Locations[ i ].ShortName.c_str() ) == 0 )
+							{
+								location = &(mech->Locations[ i ]);
+								break;
+							}
+						}
+					}
+					if( location )
+					{
+						Event e( mech );
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::RED;
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced damage to ") + mech->FullName() + std::string(".");
+						Events.push( e );
+						location->Damage( location->Structure, BattleTech::Arc::STRUCTURE );
+						SendEvents();
+					}
+					else
+						Console->Print( std::string("Could not find location ") + params->at(2) + std::string(" on ") + mech->FullName() + std::string(".") );
+				}
+				else if( params->at(1) == "crit" )
+				{
+					int eq_index = -1;
+					if( params->size() >= 3 )
+					{
+						char digit = params->at(2)[ 0 ];
+						if( (digit >= '0') && (digit <= '9') )
+							eq_index = Str::AsInt( params->at(2) );
+						else for( int i = 0; i < (int) mech->Equipment.size(); i ++ )
+						{
+							const MechEquipment *eq = &(mech->Equipment.at( i ));
+							if( Str::FindInsensitive( eq->Name, params->at(2) ) >= 0 )
+							{
+								eq_index = i;
+								break;
+							}
+						}
+					}
+					if( (eq_index >= 0) && (eq_index < (int) mech->Equipment.size()) )
+					{
+						MechLocation *location = NULL;
+						if( params->size() >= 4 )
+						{
+							for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
+							{
+								if( strcasecmp( params->at(3).c_str(), mech->Locations[ i ].ShortName.c_str() ) == 0 )
+								{
+									location = &(mech->Locations[ i ]);
+									break;
+								}
+							}
+							if( ! location )
+								Console->Print( std::string("Location ") + params->at(3) + std::string(" could not be found; using ") + mech->Equipment.at( eq_index ).Location->ShortName + std::string(".") );
+						}
+						Event e( mech );
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::RED;
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced critical hit on ") + mech->FullName() + std::string(".");
+						Events.push( e );
+						mech->Equipment.at( eq_index ).HitWithEvent( location );
+						SendEvents();
+					}
+					else if( params->size() >= 3 )
+						Console->Print( std::string("Could not find equipment ") + params->at(2) + std::string(" in ") + mech->FullName() + std::string(".") );
+					else
+						Console->Print( "Usage: sv mech <id> crit <eq> [<loc>]" );
+				}
+				else if( params->at(1) == "prone" )
+				{
+					if( ! mech->Prone )
+					{
+						mech->Prone = true;
+						Event e( mech );
+						e.Effect = BattleTech::Effect::FALL;
+						e.ShowFacing();
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced ") + mech->FullName() + std::string(" to go prone.");
+						Events.push( e );
+						SendEvents();
+					}
+					else
+						Console->Print( mech->FullName() + std::string(" is already prone.") );
+				}
+				else if( params->at(1) == "stand" )
+				{
+					if( mech->Prone )
+					{
+						mech->Prone = false;
+						Event e( mech );
+						e.Effect = BattleTech::Effect::STAND;
+						e.ShowFacing();
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced ") + mech->FullName() + std::string(" to stand.");
+						Events.push( e );
+						SendEvents();
+					}
+					else
+						Console->Print( mech->FullName() + std::string(" is already standing.") );
+				}
+				else if( params->at(1) == "sleep" )
+				{
+					if( ! mech->Unconscious )
+					{
+						mech->Unconscious = 1;
+						Event e( mech );
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::VIOLET;
+						e.ShowHealth( BattleTech::Loc::HEAD, BattleTech::Arc::STRUCTURE );
+						e.ShowStat( BattleTech::Stat::PILOT );
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced ") + mech->FullName() + std::string(" pilot unconscious.");
+						Events.push( e );
+						SendEvents();
+					}
+					else
+						Console->Print( mech->FullName() + std::string(" pilot is already unconscious.") );
+				}
+				else if( params->at(1) == "wake" )
+				{
+					if( mech->Unconscious )
+					{
+						mech->Unconscious = 0;
+						Event e( mech );
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::DARK_GREEN;
+						e.ShowStat( BattleTech::Stat::PILOT );
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced ") + mech->FullName() + std::string(" pilot to wake.");
+						Events.push( e );
+						SendEvents();
+					}
+					else
+						Console->Print( mech->FullName() + std::string(" pilot is already awake.") );
+				}
+				else if( params->at(1) == "heat" )
+				{
+					if( params->size() >= 3 )
+					{
+						mech->Heat = Str::AsInt( params->at(2) );
+						mech->HeatMove = std::min<uint8_t>( 5, mech->Heat / 5 );
+						if( mech->Heat >= 24 )
+							mech->HeatFire = 4;
+						else if( mech->Heat >= 17 )
+							mech->HeatFire = 3;
+						else if( mech->Heat >= 13 )
+							mech->HeatFire = 2;
+						else if( mech->Heat >= 8 )
+							mech->HeatFire = 1;
+						else
+							mech->HeatFire = 0;
+						Event e( mech );
+						e.Effect = mech->Heat ? BattleTech::Effect::SMOKE : BattleTech::Effect::BLINK;
+						e.Misc = mech->Heat;
+						e.ShowStat( BattleTech::Stat::HEAT );
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced ") + mech->FullName() + std::string(" to heat ") + Num::ToString((int)(mech->Heat)) + std::string(".");
+						Events.push( e );
+						SendEvents();
+					}
+					else
+						Console->Print( mech->FullName() + std::string(" is at heat ") + Num::ToString((int)(mech->Heat)) + std::string(".") );
+				}
+				else
+					Console->Print( "Usage: sv mech <id> info|destroy|crit|prone|stand|sleep|wake|heat" );
+			}
+			else
+				Console->Print( std::string("Object ") + params->at(0) + std::string(" is not a Mech.") );
+		}
+		else
+		{
+			for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
+			{
+				if( obj_iter->second->Type() == BattleTech::Object::MECH )
+				{
+					const Mech *mech = (const Mech*) obj_iter->second;
+					Console->Print( Num::ToString((int)(mech->ID)) + std::string(": ") + mech->FullName() );
+				}
+			}
+		}
+	}
+	else
+		return RaptorServer::HandleCommand( cmd, params );
+	return true;
 }
 
 
@@ -789,7 +1004,9 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					
 					std::string damage_str = Num::ToString((int)damage) + std::string(" damage");
 					
-					if( eq->Weapon->Flamer && enhanced_flamers )
+					if( eq->Weapon->Flamer && damage )
+						damage_str += std::string(" and ") + Num::ToString((int)(eq->Weapon->Flamer)) + std::string(" heat");
+					else if( eq->Weapon->Flamer && enhanced_flamers )
 					{
 						damage = eq->Weapon->Flamer;
 						damage_str = Num::ToString((int)damage) + std::string(" heat and damage");
@@ -1272,7 +1489,7 @@ void BattleTechServer::ChangeState( int state )
 			size_t fewest_to_move = total_turns_remaining;
 			for( std::map<uint8_t,size_t>::const_iterator team = team_turns_remaining.begin(); team != team_turns_remaining.end(); team ++ )
 			{
-				if( team->second < fewest_to_move )
+				if( team->second && (team->second < fewest_to_move) )
 					fewest_to_move = team->second;
 			}
 			

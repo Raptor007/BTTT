@@ -28,6 +28,7 @@ public:
 	
 	void Started( void );
 	void Stopped( void );
+	bool HandleCommand( std::string cmd, std::vector<std::string> *params = NULL );
 	bool ProcessPacket( Packet *packet, ConnectedClient *from_client );
 	void AcceptedClient( ConnectedClient *client );
 	void DroppedClient( ConnectedClient *client );

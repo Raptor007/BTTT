@@ -456,6 +456,17 @@ SpawnMenuSearchBox::~SpawnMenuSearchBox()
 }
 
 
+bool SpawnMenuSearchBox::KeyDown( SDLKey key )
+{
+	bool handled = TextBox::KeyDown( key );
+	
+	if( (key >= SDLK_F1) && (key <= SDLK_F15) )
+		return false;
+	
+	return handled;
+}
+
+
 void SpawnMenuSearchBox::Changed( void )
 {
 	SpawnMenuDropDown *mech_list = ((SpawnMenu*)( Container->Container ))->MechList;

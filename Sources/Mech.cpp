@@ -382,21 +382,27 @@ uint8_t MechEquipment::ClusterHits( uint8_t roll, bool fcs, bool narc, bool ecm,
 	
 	if( ams )
 	{
+		int reduced_roll = roll - 4;
+		
+		// Normally AMS cannot reduce cluster roll below 2, but Laser AMS or Enhanced Missile Defense can. [BattleMech Manual p.118]
+		bool reduced_to_minimum = (reduced_roll < 2) && ams->Weapon->AmmoPerTon && ! mech->Data->PropertyAsBool("enhanced_ams");
+		if( reduced_to_minimum )
+			reduced_roll = 2;
+		
 		BattleTechServer *server = (BattleTechServer*) Raptor::Server;
 		Event e( ams->MyMech() );
 		e.Effect = BattleTech::Effect::BLINK;
 		e.Sound = ams->Weapon->Sound;
 		e.Text = ams->Name + std::string(" takes -4 from cluster roll ") + Num::ToString((int)roll);
-		
-		roll = std::max<int8_t>( 0, roll - 4 );
-		if( ams->Weapon->AmmoPerTon && (roll < 2) && ! mech->Data->PropertyAsBool("enhanced_ams") )
-			roll = 2;
-		
-		if( roll )
-			e.Text += std::string(" to ") + Num::ToString((int)roll) + std::string((roll == 2)?" (minimum).":".");
+		if( reduced_to_minimum )
+			e.Text += " to 2 (minimum).";
+		else if( reduced_roll < 2 )
+			e.Text += " and no missiles hit.";
 		else
-			e.Text += " and no missiles hit the target.";
+			e.Text += ".";
 		server->Events.push( e );
+		
+		roll = std::max<int>( 0, reduced_roll );
 	}
 	
 	return (roll >= 2) ? Roll::ClusterWithEvent( cluster, roll, Weapon->Damage ) : 0;
@@ -593,6 +599,9 @@ void MechEquipment::Hit( bool directly, MechLocation *location )
 				location->Damage( armor_damage, REAR, 0 );
 		}
 	}
+	
+	else if( directly && Ammo )  // Non-explosive ammo, such as Gauss.
+		Ammo = 0;
 }
 
 
@@ -842,7 +851,7 @@ void MechLocation::Damage( uint16_t damage, uint8_t arc, uint8_t crit )
 		return;
 	
 	// Damage Transfer
-	if( (arc == STRUCTURE) && CASE )
+	if( (arc == STRUCTURE) && CASE && damage )
 	{
 		Event e( MyMech );
 		e.Text = "CASE prevented ammo explosion damage transfer.";
@@ -1609,6 +1618,8 @@ void Mech::SetVariant( const Variant &variant )
 	for( size_t i = 0; i < variant.Equipment.size(); i ++ )
 		Equipment.push_back( MechEquipment( variant.Equipment[ i ].ID, Clan, variant.Equipment[ i ].Ammo ) );
 	
+	bool arms_can_flip = !( IntactEquipmentCount( BattleTech::Equipment::LOWER_ARM_ACTUATOR ) || IntactEquipmentCount( BattleTech::Equipment::HAND_ACTUATOR ) );
+	
 	for( size_t i = 0; i < variant.Equipment.size(); i ++ )
 	{
 		MechEquipment *equipment = &(Equipment[ i ]);
@@ -1622,16 +1633,17 @@ void Mech::SetVariant( const Variant &variant )
 		{
 			equipment->WeaponArcs.insert( BattleTech::Arc::FRONT );
 			
-			//bool arm_mounted = false;
 			if( variant.Equipment[ i ].CritLocs.size() && (variant.Equipment[ i ].CritLocs.at(0) == LEFT_ARM) && ! Quad )
 			{
 				equipment->WeaponArcs.insert( BattleTech::Arc::LEFT_SIDE );
-				//arm_mounted = true;
+				if( arms_can_flip )
+					equipment->WeaponArcs.insert( BattleTech::Arc::REAR );
 			}
 			else if( variant.Equipment[ i ].CritLocs.size() && (variant.Equipment[ i ].CritLocs.at(0) == RIGHT_ARM) && ! Quad )
 			{
 				equipment->WeaponArcs.insert( BattleTech::Arc::RIGHT_SIDE );
-				//arm_mounted = true;
+				if( arms_can_flip )
+					equipment->WeaponArcs.insert( BattleTech::Arc::REAR );
 			}
 		}
 		
@@ -1828,7 +1840,7 @@ std::string Mech::MPString( uint8_t speed ) const
 	if( speed == BattleTech::Move::WALK )
 		return Num::ToString((int)WalkDist());
 	if( speed == BattleTech::Move::RUN )
-		return Num::ToString((int)RunDist());
+		return Num::ToString(std::max<int>( RunDist(), WalkDist() ));
 	if( (speed == BattleTech::Move::MASC) || (speed == BattleTech::Move::SUPERCHARGE) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
 		return Num::ToString((int)MASCDist(speed));
 	if( speed == BattleTech::Move::JUMP )
@@ -1853,7 +1865,7 @@ MechLocationRoll Mech::LocationRoll( uint8_t arc, uint8_t table, bool leg_cover 
 	lr.Table = table;
 	lr.Arc = arc;
 	
-	uint8_t dice = ((lr.Table == BattleTech::Melee::KICK) || (lr.Table == BattleTech::Melee::PUNCH)) ? 1 : 2;
+	uint8_t dice = ((lr.Table == BattleTech::HitTable::KICK) || (lr.Table == BattleTech::HitTable::PUNCH)) ? 1 : 2;
 	
 	lr.Roll = Roll::Dice( dice );
 	lr.Crit = (dice == 2) && (lr.Roll == 2);
@@ -1873,9 +1885,9 @@ MechLocationRoll Mech::LocationRoll( uint8_t arc, uint8_t table, bool leg_cover 
 			lr.Roll = Roll::Dice( dice );
 	}
 	
-	if( table == BattleTech::Melee::KICK )
+	if( table == BattleTech::HitTable::KICK )
 		lr.Loc = KickLocation( lr.Arc, lr.Roll );
-	else if( table == BattleTech::Melee::PUNCH )
+	else if( table == BattleTech::HitTable::PUNCH )
 		lr.Loc = PunchLocation( lr.Arc, lr.Roll );
 	else
 		lr.Loc = HitLocation( lr.Arc, lr.Roll );
@@ -2041,7 +2053,7 @@ void Mech::EngineExplode( void )
 				Event e( *mech );
 				e.Effect = BattleTech::Effect::EXPLOSION;
 				e.Misc = BattleTech::Effect::MISSILE;
-				e.Sound = "w_hit_f.wav";
+				e.Sound = "w_hit_m.wav";
 				e.Text = lr.String() + std::string(" for ") + Num::ToString(this_damage) + std::string(" damage.");
 				e.Loc = lr.Loc->Loc;
 				server->Events.push( e );
@@ -2190,8 +2202,6 @@ void Mech::Fall( int8_t psr_modifier )
 	
 	uint16_t damage = ceilf(Tons/10.f);
 	
-	MechLocationRoll lr = LocationRoll( hit_arc );
-	
 	BattleTechServer *server = (BattleTechServer*) Raptor::Server;
 	
 	Event e1( this );
@@ -2200,6 +2210,8 @@ void Mech::Fall( int8_t psr_modifier )
 	e1.ShowFacing( Facing, true );
 	e1.Text = ShortFullName() + std::string(" fell!  Direction roll ") + Num::ToString((int)dir) + std::string(" falls ") + dir_str + std::string(".");
 	server->Events.push( e1 );
+	
+	MechLocationRoll lr = LocationRoll( hit_arc );
 	
 	Event e2( this );
 	e2.Text = lr.String() + std::string(" for ") + Num::ToString((int)damage) + std::string(" fall damage.");
@@ -2273,7 +2285,7 @@ bool Mech::ConsciousnessRoll( bool wake ) const
 		return false;
 	
 	uint8_t need = 0;
-	if( PilotDamage == 1 )
+	if( PilotDamage <= 1 )
 		need = 3;
 	else if( PilotDamage == 2 )
 		need = 5;
@@ -2381,7 +2393,11 @@ bool Mech::CanStand( void ) const
 	if( legs_destroyed && (arms_destroyed >= 2) )
 		return false;
 	
-	// Minimum Movement Rule allows one stand attempt with a single movement point.
+	// If PilotSkillCheck would automatically fail, don't bother trying to stand.
+	if( (PilotSkill + PSRModifiers() > 12) /* && ! Quad */ )
+		return false;
+	
+	// Minimum Movement rule allows one stand attempt with a single movement point.
 	if( (! StandAttempts) && WalkDist() )
 		return true;
 	
@@ -2649,7 +2665,7 @@ std::set<MechMelee> Mech::PhysicalAttacks( const Mech *target, int8_t modifier )
 					break;
 				}
 				
-				if( equip->Damaged )
+				if( Locations[ i ].DamagedCriticalCount( equip->ID ) ) // FIXME: Should be equip->Damaged, but first make sure each melee weapon is separate equipment.
 					continue;
 				if( (equip->ID == BattleTech::Equipment::HATCHET)
 				||  (equip->ID == BattleTech::Equipment::SWORD) )
@@ -2730,6 +2746,8 @@ MechEquipment *Mech::FindAmmo( uint16_t eq_id )
 	{
 		if( ! equip->Ammo )
 			continue;
+		if( equip->Damaged )
+			continue;
 		if( eq_id && (equip->ID != eq_id) )
 			continue;
 		
@@ -2760,6 +2778,8 @@ uint16_t Mech::TotalAmmo( uint16_t eq_id ) const
 	
 	for( std::vector<MechEquipment>::const_iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
 	{
+		if( equip->Damaged )
+			continue;
 		if( eq_id && (equip->ID != eq_id) )
 			continue;
 		
@@ -3477,6 +3497,14 @@ uint8_t Mech::SpeedNeeded( bool final_position ) const
 	if( (cost <= RunDist()) && ! reversed )
 		return BattleTech::Move::RUN;
 	
+	// Minimum Movement rule allows one stand attempt with a single movement point.
+	if( (StandAttempts == 1) && (cost == 2) && WalkDist() )
+		return BattleTech::Move::RUN;
+	
+	// Minimum Movement rule allows entering the hex ahead using a single movement point.
+	if( (Steps.size() == 1) && (Steps.back().Step == 1) && WalkDist() && ! StandAttempts )
+		return BattleTech::Move::RUN;
+	
 	// If we declared running before standing, that's our move limit.
 	if( MoveSpeed == BattleTech::Move::RUN )
 		return BattleTech::Move::INVALID;
@@ -3494,14 +3522,6 @@ uint8_t Mech::SpeedNeeded( bool final_position ) const
 		if( jump_cost <= (int) JumpDist() )
 			return BattleTech::Move::JUMP;
 	}
-	
-	// Minimum Movement Rule allows entering the hex ahead using a single movement point.
-	if( (Steps.size() == 1) && (Steps.back().Step == 1) && WalkDist() )
-		return BattleTech::Move::RUN;
-	
-	// Minimum Movement Rule allows one stand attempt with a single movement point.
-	if( (StandAttempts == 1) && (cost == 2) && WalkDist() )
-		return BattleTech::Move::RUN;
 	
 	return BattleTech::Move::INVALID;
 }
@@ -3633,9 +3653,11 @@ void Mech::Draw( void )
 			}
 			
 			Vec3D up( upper ? &aim : &fwd );
+			Vec3D up2( &fwd );
 			Vec3D right( &up );
 			right.RotateAround( &axis, mirror ? -90 : 90. );
 			up.ScaleBy(    radius );
+			up2.ScaleBy(   radius );
 			right.ScaleBy( radius );
 			Pos3D center = pos;
 			
@@ -3715,7 +3737,10 @@ void Mech::Draw( void )
 				if( leg && ((MoveEffect == BattleTech::Effect::LEFT_KICK) == mirror) )
 					center.MoveAlong( &up, sin( move_progress * M_PI ) * 0.3 );
 				else if( upper )
-					center.MoveAlong( &up, sin( move_progress * M_PI ) * 0.1 );
+				{
+					center.MoveAlong( &up,  sin( move_progress * M_PI ) * 0.04 );
+					center.MoveAlong( &up2, sin( move_progress * M_PI ) * 0.06 );
+				}
 			}
 			
 			if( (*loc == TurnedArm) || ((*loc == FromTurnedArm) && (move_progress < 1.)) )

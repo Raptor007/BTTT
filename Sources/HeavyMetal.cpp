@@ -181,16 +181,18 @@ std::map< short, HMWeapon > HeavyMetal::Weapons( const char *filename )
 		ptr += 6;
 		
 		const char *name_str = w.Name.c_str();
+		const char *damage_str = w.DamageStr.c_str();
 		
 		if( strstr( name_str, "Flamer" ) )
 		{
 			w.Damage = 0;
-			w.Flamer = atoi( w.DamageStr.c_str() );
+			w.Flamer = atoi( damage_str );
 		}
 		else
 		{
-			w.Damage = atoi( w.DamageStr.c_str() );  // FIXME: Check for x/x/x (Heavy Gauss Rifle); currently handled in BattleTechServer.
-			w.Flamer = 0;
+			w.Damage = atoi( damage_str );  // FIXME: Check for x/x/x (Heavy Gauss Rifle); currently handled in BattleTechServer.
+			const char *plus_heat = strchr( damage_str, '+' );
+			w.Flamer = plus_heat ? atoi( plus_heat + 1 ) : 0;
 		}
 		
 		w.Heat = atoi( w.HeatStr.c_str() );
@@ -199,7 +201,7 @@ std::map< short, HMWeapon > HeavyMetal::Weapons( const char *filename )
 		w.ClusterDamageGroup = 0;
 		w.ClusterRollBonus = 0;
 		
-		if( strstr( w.DamageStr.c_str(), "/hit" ) )
+		if( strstr( damage_str, "/hit" ) )
 		{
 			for( const char *c = name_str; *c; c++ )
 			{
@@ -246,6 +248,11 @@ std::map< short, HMWeapon > HeavyMetal::Weapons( const char *filename )
 		
 		if( w.Defensive && (w.Type != HMWeapon::MISC) )
 			w.Sound = (w.Type == HMWeapon::ENERGY) ? "w_slas.wav" : "w_mg.wav";
+		else if( w.Flamer && w.Damage )
+		{
+			w.Sound = "w_plasma.wav";
+			w.Effect = BattleTech::Effect::PLASMA;
+		}
 		else if( w.Flamer )
 		{
 			w.Sound = "w_flamer.wav";
@@ -535,6 +542,14 @@ uint8_t HeavyMetal::CritSlots( short wid, bool clan, const std::map< short, HMWe
 		return (clan ? 2 : 1);
 	if( wid == 0x28 ) // Coolant Pod
 		return 1;
+	
+	// FIXME: Dirty hack for MechEquipment::HitWithEvent to show "already damaged" on additional hits.
+	if( wid == 0x12 ) // Targeting Computer
+		return 254;
+	if( wid == 0x17 ) // MASC
+		return 254;
+	if( wid == 0x27 ) // Null Signature System
+		return 254;
 	
 	return 255;
 }

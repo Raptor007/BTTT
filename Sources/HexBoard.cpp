@@ -249,31 +249,31 @@ void HexBoard::Draw( void )
 	double mx = (game->Mouse.X - game->Gfx.W/2) / game->Zoom + game->X;
 	double my = (game->Mouse.Y - game->Gfx.H/2) / game->Zoom + game->Y;
 	Hex *hex = map->Nearest( mx, my );
-	const Mech *mech = hex ? map->MechAt_const( hex->X, hex->Y ) : NULL;
+	const Mech *moused = hex ? map->MechAt_const( hex->X, hex->Y ) : NULL;
 	
-	if( mech )
+	if( moused )
 	{
-		if( (mech->HitClock.ElapsedSeconds() > 3.5) && ! game->GetRecordSheet(mech) )
-			mech->DrawHealth( game->Mouse.X - 64, game->Mouse.Y + 35, game->Mouse.X + 64, game->Mouse.Y + 163 );
+		if( (moused->HitClock.ElapsedSeconds() > 3.5) && ! game->GetRecordSheet(moused) )
+			moused->DrawHealth( game->Mouse.X - 64, game->Mouse.Y + 35, game->Mouse.X + 64, game->Mouse.Y + 163 );
 		
-		std::string name = mech->ShortFullName();
+		std::string name = moused->ShortFullName();
 		if( game->State == BattleTech::State::SETUP )
 		{
-			name += std::string(" [") + Num::ToString(mech->Tons) + std::string("T]");
-			if( (mech->GunnerySkill != 3) || (mech->PilotSkill != 4) )
-				name += std::string(" [G") + Num::ToString(mech->GunnerySkill) + std::string("/P") + Num::ToString(mech->PilotSkill) + std::string("]");
+			name += std::string(" [") + Num::ToString(moused->Tons) + std::string("T]");
+			if( (moused->GunnerySkill != 3) || (moused->PilotSkill != 4) )
+				name += std::string(" [G") + Num::ToString(moused->GunnerySkill) + std::string("/P") + Num::ToString(moused->PilotSkill) + std::string("]");
 		}
-		if( mech->Destroyed() )
+		if( moused->Destroyed() )
 			name += " [DESTROYED]";
 		else
 		{
-			if( mech->Shutdown )
+			if( moused->Shutdown )
 				name += " [SHUTDOWN]";
-			if( mech->Unconscious )
+			if( moused->Unconscious )
 				name += " [UNCONSCIOUS]";
-			if( mech->Prone )
+			if( moused->Prone )
 				name += " [PRONE]";
-			if( mech->Narced() )
+			if( moused->Narced() )
 				name += " [NARC]";
 		}
 		TurnFont->DrawText( name, game->Mouse.X + 1, game->Mouse.Y + 15, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
@@ -343,6 +343,8 @@ void HexBoard::Draw( void )
 		
 		if( move_mode == BattleTech::Move::WALK )
 			status += " walking.";
+		else if( (move_mode == BattleTech::Move::RUN) && (step_cost > selected->RunDist()) )
+			status += " running with Minimum Movement rule.";
 		else if( move_mode == BattleTech::Move::RUN )
 			status += " running.";
 		else if( move_mode == BattleTech::Move::MASC )
@@ -362,7 +364,7 @@ void HexBoard::Draw( void )
 		{
 			if( ! selected->CanStand() )
 				status += "  It cannot stand.";
-			else if( selected->MoveSpeed )
+			else if( selected->MoveSpeed || (selected->WalkDist() == 1) )
 				status += "  Up arrow to stand.";
 			else
 				status += "  Up arrow to stand running, down for walking.";
@@ -370,6 +372,8 @@ void HexBoard::Draw( void )
 		
 		if( selected->Shutdown || selected->Unconscious )
 			status = selected->ShortName() + std::string(" cannot move this turn.  Press Enter to skip.");
+		else if( selected->StandAttempts && (! selected->Prone) && (selected->WalkDist() == 1) )
+			status = selected->ShortName() + std::string(" stood using Minimum Movement rule.");
 	}
 	else if( (game->State >= BattleTech::State::TAG) && (game->State <= BattleTech::State::PHYSICAL_ATTACK) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == my_team) )
 	{
@@ -1063,6 +1067,8 @@ bool HexBoard::KeyDown( SDLKey key )
 				else
 					selected->MoveSpeed = BattleTech::Move::RUN;
 			}
+			else if( selected->WalkDist() < 2 ) // Minimum Movement Rule
+				selected->MoveSpeed = BattleTech::Move::RUN;
 			else
 				selected->MoveSpeed = BattleTech::Move::WALK;
 		}
@@ -1201,6 +1207,18 @@ void HexBoardAim::UpdateWeaponsInRange( const Mech *selected, const Mech *target
 	if( selected->Unconscious || selected->Shutdown )
 		return;
 	
+	int8_t modifier = 0;
+	if( state == BattleTech::State::MOVEMENT )
+	{
+		uint8_t speed = selected->SpeedNeeded();
+		if( speed == BattleTech::Move::WALK )
+			modifier = 1;
+		else if( (speed >= BattleTech::Move::RUN) && (speed <= BattleTech::Move::MASC_SUPERCHARGE) )
+			modifier = 2;
+		else if( speed == BattleTech::Move::JUMP )
+			modifier = 3;
+	}
+	
 	if( state != BattleTech::State::PHYSICAL_ATTACK )
 	{
 		for( size_t index = 0; index < selected->Equipment.size(); index ++ )
@@ -1212,15 +1230,16 @@ void HexBoardAim::UpdateWeaponsInRange( const Mech *selected, const Mech *target
 			if( eq->Weapon && (! eq->Weapon->TAG) && (state == BattleTech::State::TAG) )
 				continue;
 			
-			int8_t difficulty = selected->WeaponRollNeeded( target, &Path, eq );
+			int8_t difficulty = selected->WeaponRollNeeded( target, &Path, eq ) + modifier;
 			
 			if( difficulty <= 12 )
 				WeaponsInRange[ index ] = difficulty;
 		}
 	}
-	else
+	
+	if( (state == BattleTech::State::PHYSICAL_ATTACK) || (state == BattleTech::State::MOVEMENT) )
 	{
-		int8_t modifier = target->Defense + Path.Modifier;
+		modifier += target->Defense + Path.Modifier;
 		
 		if( target->Prone )
 			modifier += (Path.Distance <= 1) ? -2 : 1;

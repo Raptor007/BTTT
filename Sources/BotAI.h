@@ -46,5 +46,6 @@ public:
 	void ChooseWeapons( void );
 	int16_t ShotHeat( void ) const;
 	double Value( void ) const;
+	double ValueWithTwist( Mech *from, int8_t twist );
 	bool operator < ( const BotAIAim &other ) const;
 };

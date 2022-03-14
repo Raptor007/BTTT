@@ -78,6 +78,7 @@ namespace BattleTech
 			SMALL_LASER,
 			SMALL_PULSE,
 			FLAMER,
+			PLASMA,
 			PPC,
 			GAUSS,
 			AUTOCANNON,

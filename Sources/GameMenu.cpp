@@ -65,10 +65,7 @@ GameMenu::GameMenu( void )
 		{
 			group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "mech_limit", "Limit to 1 Mech Per Player", "1", "0" ) );
 			rect.y += rect.h + SPACING;
-			/*
-			group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "teams", "Enable Third Team", "3", "2" ) );
-			rect.y += rect.h + SPACING;
-			*/
+			
 			rect.h = ItemFont->GetAscent() + 6;
 			GameMenuSvDropDown *teams = new GameMenuSvDropDown( &rect, ItemFont, "teams" );
 			for( int i = 2; i <= 5; i ++ )
@@ -84,6 +81,8 @@ GameMenu::GameMenu( void )
 		int teams = game->Data.PropertyAsInt("teams",2);
 		for( int i = 1; i <= teams; i ++ )
 			AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
+		if( game->Cfg.SettingAsBool("debug") )
+			AITeam->AddItem( "1,2,3,4,5", " AI Team: All (No Humans)" );
 		AITeam->Update();
 		group->AddElement( AITeam );
 		rect.y += rect.h + SPACING;
@@ -327,7 +326,7 @@ void GameMenuEndButton::Clicked( Uint8 button )
 		if( Raptor::Server->IsRunning() && (Raptor::Server->State > BattleTech::State::SETUP) )
 			Raptor::Server->ChangeState( BattleTech::State::SETUP );
 		else
-			Raptor::Game->HandleCommand( "ready" );
+			Raptor::Game->Cfg.Command( "ready" );
 	}
 }
 
@@ -386,7 +385,7 @@ void GameMenuCommandButton::Clicked( Uint8 button )
 	{
 		Raptor::Game->Snd.Play( Raptor::Game->Res.GetSound("i_select.wav") );
 		
-		Raptor::Game->HandleCommand( Command );
+		Raptor::Game->Cfg.Command( Command );
 	}
 }
 
@@ -486,25 +485,36 @@ void GameMenuSvCheckBox::SetChecked( void )
 
 void GameMenuSvCheckBox::Changed( void )
 {
-	Raptor::Game->Snd.Play( Raptor::Game->Res.GetSound("i_select.wav") );
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+	
+	game->Snd.Play( game->Res.GetSound("i_select.wav") );
 	
 	Packet info = Packet( Raptor::Packet::INFO );
 	info.AddUShort( 1 );
 	info.AddString( Variable );
 	info.AddString( Checked ? TrueStr : FalseStr );
-	Raptor::Game->Net.Send( &info );
+	game->Net.Send( &info );
 	
-	GameMenu *gm = (GameMenu*) Raptor::Game->Layers.Find("GameMenu");
-	int teams = Raptor::Game->Data.PropertyAsInt("teams",2);
+	GameMenu *gm = (GameMenu*) game->Layers.Find("GameMenu");
+	int teams = game->Data.PropertyAsInt("teams",2);
 	if( gm && gm->AITeam && (Variable == "teams") )
 	{
-		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 		teams = Str::AsInt( Checked ? TrueStr : FalseStr );
 		for( int i = gm->AITeam->Items.size(); i <= teams; i ++ )
 			gm->AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
 	}
-	else if( gm && gm->AITeam && (teams == 2) && (Variable == "hotseat") && (gm->AITeam->Value != "0") )
-		gm->AITeam->Select( "0" );  // FIXME: Prevent double sound.
+	else if( Variable == "hotseat" )
+	{
+		if( (teams == 2) && gm && gm->AITeam && (gm->AITeam->Value != "0") )
+			gm->AITeam->Select( "0" );  // FIXME: Prevent double sound.
+		
+		if( Checked && (game->State >= BattleTech::State::INITIATIVE) )
+		{
+			uint8_t my_team = game->MyTeam();
+			if( my_team && game->TeamTurn && (my_team != game->TeamTurn) )
+				game->Cfg.Command( std::string("team ") + Num::ToString(game->TeamTurn) );
+		}
+	}
 }
 
 

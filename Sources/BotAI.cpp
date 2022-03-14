@@ -5,6 +5,7 @@
 #include "BotAI.h"
 
 #include "BattleTechServer.h"
+#include "Rand.h"
 #include <algorithm>
 #include <cmath>
 
@@ -108,8 +109,10 @@ void BotAI::BeginPhase( int state )
 					std::set<BotAIAim>::iterator best = sorted.begin();
 					mech->WeaponsToFire = best->WeaponsToFire;
 					mech->SelectedMelee = best->SelectedMelee;
-					mech->TorsoTwist    = best->TorsoTwist;
+					int8_t torso_twist = mech->TorsoTwist;
+					mech->TorsoTwist = best->TorsoTwist;
 					p = best->CreatePacket( mech, best->Target, state );
+					mech->TorsoTwist = torso_twist;
 					sorted.erase( best );
 				}
 				
@@ -224,7 +227,7 @@ void BotAI::TakeTurn( void )
 						if( ! mech->Step( BattleTech::Move::WALK ) )
 						{
 							// Try to walk around the obstruction.
-							if( ! mech->Turn( (mech->RelativeAngle( target->X, target->Y ) < 0.) ? -1 : 1 ) )
+							if( ! mech->Turn( Rand::Bool() ? -1 : 1 ) )
 								break;
 							if( ! mech->Step( BattleTech::Move::WALK ) )
 								break;
@@ -295,74 +298,101 @@ void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexM
 	Target = target;
 	State = state;
 	
+	TorsoTwist = 0;
+	ValueBonus = 0.;
+	
 	uint8_t x, y;
 	From->GetPosition( &x, &y );
-	Path = map->Path( x, y, target->X, target->Y );
+	Path = map->Path( x, y, Target->X, Target->Y );
+	double angle = From->RelativeAngle( Target->X, Target->Y );
 	
-	// Slightly prefer getting closer to target.
-	ValueBonus = 0.1 * (map->HexDist( from->X, from->Y, target->X, target->Y ) - map->HexDist( x, y, target->X, target->Y ));
-	
-	// Slightly prefer higher elevation, like a cat.
-	const Hex *hex = &(map->Hexes[ x ][ y ]);
-	ValueBonus += hex->Height * 0.1;
-	
-	// Very slightly prefer facing the target.  This is mostly used for jump facing.
-	double angle = from->RelativeAngle( target->X, target->Y );
-	ValueBonus += (180. - fabs(angle)) * 0.0001;
-	
-	// Prefer stopping in trees.
-	ValueBonus += hex->Forest;
-	
-	// Prefer partial cover from return fire.
-	ShotPath incoming = map->Path( target->X, target->Y, x, y );
-	if( incoming.LineOfSight && incoming.PartialCover )
-		ValueBonus += 1.25;
-	
-	// First calculate shots without torso twist, to see if we have rear-firing or flipped-arm weapons in range.
-	UpdateWeaponsInRange( from, target, state );
-	
-	// Determine best torso twist to hit this target.
-	uint8_t firing_arc = from->FiringArc( target->X, target->Y );
-	if( firing_arc == BattleTech::Arc::LEFT_SIDE )
-		TorsoTwist = -1;
-	else if( firing_arc == BattleTech::Arc::RIGHT_SIDE )
-		TorsoTwist = 1;
-	else if( (firing_arc == BattleTech::Arc::REAR) && ! WeaponsInRange.size() )
-		TorsoTwist = (angle > 0.) ? 1 : -1;
-	else
-		TorsoTwist = 0;
-	
-	// Temporarily change the Mech's TorsoTwist for UpdateWeaponsInRange, then change it back.
-	if( TorsoTwist )
+	if( State == BattleTech::State::MOVEMENT )
 	{
-		int8_t torso_twist = from->TorsoTwist;
-		from->TorsoTwist = TorsoTwist;
-		UpdateWeaponsInRange( from, target, state );
-		from->TorsoTwist = torso_twist;
-	}
-	
-	if( state == BattleTech::State::MOVEMENT )
-	{
+		const Hex *hex = &(map->Hexes[ x ][ y ]);
 		uint8_t speed = From->SpeedNeeded();
-		int8_t modifier = 0;
-		if( speed == BattleTech::Move::WALK )
-			modifier = 1;
-		else if( (speed >= BattleTech::Move::RUN) && (speed <= BattleTech::Move::MASC_SUPERCHARGE) )
-			modifier = 2;
-		else if( speed == BattleTech::Move::JUMP )
-			modifier = 3;
 		
-		for( std::map<uint8_t,int8_t>::const_iterator weap = WeaponsInRange.begin(); weap != WeaponsInRange.end(); weap ++ )
-			WeaponsInRange[ weap->first ] += modifier;
+		// Slightly prefer getting closer to target.
+		ValueBonus += 0.1 * (map->HexDist( From->X, From->Y, Target->X, Target->Y ) - map->HexDist( x, y, Target->X, Target->Y ));
+		
+		// Slightly prefer higher elevation, like a cat.
+		ValueBonus += hex->Height * 0.1;
+		
+		// Prefer stopping in trees.
+		ValueBonus += hex->Forest;
+		
+		// Prefer partial cover from return fire.
+		ShotPath incoming = map->Path( Target->X, Target->Y, x, y );
+		if( incoming.LineOfSight && incoming.PartialCover )
+			ValueBonus += target->TookTurn ? 1.25 : 0.5;
+		
+		// Very slightly prefer facing the target.  This is mostly used for jump facing.
+		ValueBonus += (180. - fabs(angle)) * 0.0001;
+		
+		// Prefer moving far enough for a better defense bonus.
+		int entered = 0;
+		if( speed == BattleTech::Move::JUMP )
+		{
+			entered = map->HexDist( From->X, From->Y, x, y );
+			ValueBonus += 1.;
+		}
+		else
+		{
+			for( std::vector<MechStep>::const_iterator step = From->Steps.begin(); step != From->Steps.end(); step ++ )
+				entered += step->Step; // FIXME: This will not be correct if the AI uses reverse movement.
+		}
+		if( entered >= 25 )
+			ValueBonus += 6.;
+		else if( entered >= 18 )
+			ValueBonus += 5.;
+		else if( entered >= 10 )
+			ValueBonus += 4.;
+		else if( entered >= 7 )
+			ValueBonus += 3.;
+		else if( entered >= 5 )
+			ValueBonus += 2.;
+		else if( entered >= 3 )
+			ValueBonus += 1.;
 		
 		// Avoid using MASC or Supercharger multiple times in a row.
 		if( (speed == BattleTech::Move::MASC) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
-			ValueBonus -= 10. * from->MASCTurns;
+			ValueBonus -= 10. * From->MASCTurns;
 		if( (speed == BattleTech::Move::SUPERCHARGE) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
-			ValueBonus -= 10. * from->SuperchargerTurns;
+			ValueBonus -= 10. * From->SuperchargerTurns;
 	}
 	
+	if( (State == BattleTech::State::WEAPON_ATTACK) || (State == BattleTech::State::MOVEMENT) )
+	{
+		// Determine best torso twist to hit this target.
+		uint8_t firing_arc = From->FiringArc( Target->X, Target->Y );
+		if( firing_arc == BattleTech::Arc::LEFT_SIDE )
+			TorsoTwist = -1;
+		else if( firing_arc == BattleTech::Arc::RIGHT_SIDE )
+			TorsoTwist = 1;
+		else if( firing_arc == BattleTech::Arc::REAR )
+		{
+			double value_c = ValueWithTwist( from, 0 );
+			double value_l = ValueWithTwist( from, -1 );
+			double value_r = ValueWithTwist( from, 1 );
+			if( (value_l > value_c) || (value_r > value_c) )
+			{
+				if( value_r > value_l )
+					TorsoTwist = 1;
+				else if( value_l > value_r )
+					TorsoTwist = -1;
+				else
+					TorsoTwist = (angle > 0.) ? 1 : -1;
+			}
+		}
+		
+		// Temporarily set the Mech's TorsoTwist before UpdateWeaponsInRange.
+		from->TorsoTwist = TorsoTwist;
+	}
+	
+	UpdateWeaponsInRange( From, Target, State );
 	ChooseWeapons();
+	
+	if( State < BattleTech::State::PHYSICAL_ATTACK )
+		from->TorsoTwist = 0;
 }
 
 
@@ -375,60 +405,56 @@ void BotAIAim::ChooseWeapons( void )
 		WeaponsToFire[ weapon->first ] = std::max<uint8_t>( 1, eq->Weapon->RapidFire );
 	}
 	
-	// This state check deliberately keeps the bots from calculating heat during movement phase so they play more human.
-	if( State == BattleTech::State::WEAPON_ATTACK )
+	int16_t base_heat = From->Heat - From->HeatDissipation;
+	int16_t shot_heat = ShotHeat();
+	while( shot_heat && ((shot_heat + base_heat) >= 5) )
 	{
-		int16_t base_heat = From->Heat - From->HeatDissipation;
-		int16_t shot_heat = ShotHeat();
-		while( shot_heat && ((shot_heat + base_heat) >= 5) )
+		// Always fire at least 1 shot.
+		if( (WeaponsToFire.size() == 1) && (WeaponsToFire.begin()->second == 1) )
+			break;
+		
+		double worst_value = 7777777.;
+		uint8_t worst_index = 0;
+		for( std::map<uint8_t,uint8_t>::const_iterator weap = WeaponsToFire.begin(); weap != WeaponsToFire.end(); weap ++ )
 		{
-			// Always fire at least 1 shot.
-			if( (WeaponsToFire.size() == 1) && (WeaponsToFire.begin()->second == 1) )
-				break;
+			const MechEquipment *eq = &(From->Equipment[ weap->first ]);
 			
-			double worst_value = 7777777.;
-			uint8_t worst_index = 0;
-			for( std::map<uint8_t,uint8_t>::const_iterator weap = WeaponsToFire.begin(); weap != WeaponsToFire.end(); weap ++ )
-			{
-				const MechEquipment *eq = &(From->Equipment[ weap->first ]);
-				
-				// Start with damage multiplied by likely rapid fire hits.
-				double value = std::max<double>( 0.9, eq->Weapon->Damage )
-				             * std::max<double>( 1., weap->second * 0.6 );
-				
-				// Multiply by likeliness to hit.
-				std::map<uint8_t,int8_t>::const_iterator difficulty = WeaponsInRange.find( weap->first );
-				if( (difficulty == WeaponsInRange.end()) || (difficulty->second > 12) )
-					value = 0.;
-				else
-					value *= (11. - std::max<double>( 0., difficulty->second - 2 )) / 11.;
-				
-				// Multiply by likely cluster hits.
-				if( eq->Weapon->Type == HMWeapon::MISSILE_STREAK )
-					value *= std::max<double>( 1., eq->Weapon->ClusterWeaponSize );
-				else
-					value *= std::max<double>( 1., eq->Weapon->ClusterWeaponSize * 0.6 );
-				
-				// Divide by heat.
-				double weap_heat = eq->Weapon->Heat * weap->second;
-				if( eq->Weapon->Type == HMWeapon::MISSILE_STREAK )
-					weap_heat *= (11. - std::max<double>( 0., difficulty->second - 2 )) / 11.;
-				value /= std::max<double>( 0.01, weap_heat );
-				
-				if( value < worst_value )
-				{
-					worst_value = value;
-					worst_index = weap->first;
-				}
-			}
+			// Start with damage multiplied by likely rapid fire hits.
+			double value = std::max<double>( 0.9, eq->Weapon->Damage )
+			             * std::max<double>( 1., weap->second * 0.6 );
 			
-			if( WeaponsToFire[ worst_index ] )
-				WeaponsToFire[ worst_index ] --;
+			// Multiply by likeliness to hit.
+			std::map<uint8_t,int8_t>::const_iterator difficulty = WeaponsInRange.find( weap->first );
+			if( (difficulty == WeaponsInRange.end()) || (difficulty->second > 12) )
+				value = 0.;
 			else
-				break;
+				value *= (11. - std::max<double>( 0., difficulty->second - 2 )) / 11.;
 			
-			shot_heat = ShotHeat();
+			// Multiply by likely cluster hits.
+			if( eq->Weapon->Type == HMWeapon::MISSILE_STREAK )
+				value *= std::max<double>( 1., eq->Weapon->ClusterWeaponSize );
+			else
+				value *= std::max<double>( 1., eq->Weapon->ClusterWeaponSize * 0.6 );
+			
+			// Divide by heat.
+			double weap_heat = eq->Weapon->Heat * weap->second;
+			if( eq->Weapon->Type == HMWeapon::MISSILE_STREAK )
+				weap_heat *= (11. - std::max<double>( 0., difficulty->second - 2 )) / 11.;
+			value /= std::max<double>( 0.01, weap_heat );
+			
+			if( value < worst_value )
+			{
+				worst_value = value;
+				worst_index = weap->first;
+			}
 		}
+		
+		if( WeaponsToFire[ worst_index ] )
+			WeaponsToFire[ worst_index ] --;
+		else
+			break;
+		
+		shot_heat = ShotHeat();
 	}
 	
 	SelectedMelee.clear();
@@ -477,8 +503,9 @@ double BotAIAim::Value( void ) const
 				continue;
 			
 			const MechEquipment *eq = &(From->Equipment[ weap->first ]);
+			bool fcs = eq->WeaponFCS && ! eq->WeaponFCS->Damaged;
 			double damage = std::max<double>( 0.9, eq->Weapon->Damage )
-			              * std::max<double>( 1., eq->Weapon->ClusterWeaponSize * 0.6 )
+			              * std::max<double>( 1., eq->Weapon->ClusterWeaponSize * (fcs ? 0.8 : 0.6) )
 			              * std::max<double>( 1., weap->second * 0.6 );
 			
 			value += damage * (11. - std::max<double>( 0., difficulty->second - 2 )) / 11.;
@@ -509,7 +536,33 @@ double BotAIAim::Value( void ) const
 	}
 	
 	// Prefer better cover and getting closer (even when no shots will hit).
-	value += ValueBonus;
+	value += (ValueBonus * 2.);
+	
+	return value;
+}
+
+
+double BotAIAim::ValueWithTwist( Mech *from, int8_t twist )
+{
+	// Keep the old data to restore.
+	int8_t torso_twist = from->TorsoTwist;
+	std::map<uint8_t,int8_t> weapons_in_range = WeaponsInRange;
+	std::map<uint8_t,uint8_t> weapons_to_fire = WeaponsToFire;
+	std::set<MechMelee> possible_melee = PossibleMelee;
+	std::set<MechMelee> selected_melee = SelectedMelee;
+	
+	// Change the data and calculate the value.
+	from->TorsoTwist = twist;
+	UpdateWeaponsInRange( from, Target, State );
+	ChooseWeapons();
+	double value = Value();
+	
+	// Restore the old data.
+	from->TorsoTwist = torso_twist;
+	WeaponsInRange = weapons_in_range;
+	WeaponsToFire = weapons_to_fire;
+	PossibleMelee = possible_melee;
+	SelectedMelee = selected_melee;
 	
 	return value;
 }

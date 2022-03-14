@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|            0.9.3 Beta (2022-02-22)            |
+|            0.9.4 Beta (2022-03-14)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -43,7 +43,7 @@ Getting Started:
 * Right-click on the map to spawn your selected Mech.  You can turn and move with the
   arrow keys during this Setup phase, and press Enter to commit a new starting position.
 * If you want to remove your Mech, press Del or Shift-Backspace to eject.
-* If playing Hotseat, press Tab to change teams and spawn the other Mech(s).
+* If playing Hotseat or vs AI, press Tab to change teams and spawn the other Mech(s).
 * When everyone is ready, the host should press Enter or Esc and click Initiate Combat.
 
 Gameplay Controls:
@@ -53,6 +53,7 @@ Gameplay Controls:
 * Enter submits your turn (on any phase).
 * Right-click to aim during the TAG, Weapon Attack, or Physical Attack phases.
 * WASD moves the map, R/F zooms in/out, Q/Home resets view, and E zooms to active area.
+* I displays record sheet for the selected mech, and O for the right-click aim target.
 
 Walk, run, MASC, or jump will be automatically chosen based on how far you move and if
 you use any reverse movement.  If you want to jump when the move could be walked or run,
@@ -65,7 +66,6 @@ You can create custom variants using HeavyMetal Pro and add them to the Mechs di
   http://www.heavymetalpro.com/HMPro_Features.htm
 
 Known Issues:
-* Standing up with 1MP using minimum movement rule should still allow choosing facing.
 * Dropping to prone move is not implemented; Mechs can only go prone by falling.
 * Cannot choose HE or ER ammo for ATM.
 * Cannot choose cluster ammo for LB-X AC.
@@ -82,11 +82,13 @@ Known Issues:
 * Caseless AC rolling 2 should jam and crit itself; instead it explodes.
 * Hyper-velocity AC rolling 2 should destroy all of its crit slots.
 * Engine explosion check should only happen if the engine takes 4 critical hits.
+* Engine explosion check should still occur after torso ammo explosion kills the pilot.
 * MASC is always preferred over Supercharger with both equipped; it should be a choice.
 * Arrow IV homing missile rules are not implemented.
 * Quadrupedal Mech rules are only partially implemented.
 * Coolant Pods are not implemented.
 * Command Couch (backup pilot) is not implemented.
+* Turret weapons are not implemented; they only fire forward.
 * C3 networks are not implemented.
 * Not all included Mechs look correct (but you can add them to MechTex.ini).
 
@@ -104,6 +106,36 @@ Troubleshooting:
 * When starting the game, "Loading Mechs" is sometimes very slow.
  - Move BTTT to an SSD or remove some files from the Mechs folder.
 
+Frequently Asked Questions (FAQ):
+* How do I set up a game against the computer?
+ - First select which team you would like the AI to control from the main menu.  Then
+   press Tab to bring up the Team/Mech menu, switch to the AI team, and right-click to
+   spawn Mechs for them.  Then press Tab again, switch to your team, and spawn your
+   Mechs.  Finally press Return to bring up the main menu, and Return again to start.
+* How does BTTT compare to MegaMek?
+ - I have not used MegaMek because it requires Java.  But I can see from the tutorial
+   videos that it is an impressive effort to implement nearly every feature described
+   in any BattleTech rulebook, such as hidden units, radar modes, non-Mech units, etc.
+   By contrast, BTTT streamlines just the core gameplay rules of the BattleMech Manual
+   and Total Warfare, attempting to clone how my friends and I play our tabletop games.
+   Movements, attacks, and damage resolution are animated and described step by step,
+   tracking damage on record sheets.  It is written in C++ and compiled to native code.
+* Will there be a mobile/tablet port?
+ - Maybe someday, but no promises.  I play games on PC and use a Blackberry Classic.
+   BTTT and RaptorEngine are both open source C++, so you are welcome to try porting it.
+   You would probably need to ditch my SDL 1.2 bindings for SDL2, rework a few older GL
+   calls that are not available in OpenGLES, and replace keyboard controls with touch.
+
+Version 0.9.4 Beta (2022-03-14):
+* Fixed to-hit previews in Movement phase not adding walk/run/jump attack modifier.
+* Fixed non-explosive ammo (Gauss) still being usable after critical hit.
+* Fixed several bugs related to Minimum Movement rule. [BattleMech Manual p.16]
+* Fixed AI using torso twist with TAG; torso twist is set during Weapon Attack.
+* Mechs controlled by AI move a little smarter and can now use arm flipping.
+* Implemented weapons that deal both damage and heat to target (Plasma Rifles).
+* Enabling hotseat mode mid-game switches your team to the current turn.
+* Default game settings no longer limit to 1 Mech per player.
+* Defined texture information for even more Mechs.
 Version 0.9.3 Beta (2022-02-22):
 * Added rudimentary AI code so you can play against the computer.
 * Can preview to-hit rolls during Movement phase by right-clicking potential targets.

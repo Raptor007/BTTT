@@ -532,6 +532,8 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				}
 				else if( e->Misc == BattleTech::Effect::FLAMER )
 					size = 0.8;
+				else if( e->Misc == BattleTech::Effect::PLASMA )
+					size = 0.9;
 				else if( e->Misc == BattleTech::Effect::PPC )
 				{
 					texture = "ppc_hit.ani";
@@ -659,6 +661,12 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				texture = "flamer.png";
 				speed = 10.;
 				size = 0.6;
+			}
+			else if( e->Effect == BattleTech::Effect::PLASMA )
+			{
+				texture = "flamer.png";
+				speed = 14.;
+				size = 0.8;
 			}
 			else if( e->Effect == BattleTech::Effect::GAUSS )
 			{

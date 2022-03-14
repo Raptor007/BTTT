@@ -210,6 +210,8 @@ void RecordSheet::Draw( void )
 		else if( game->SelectedID == mech->ID )
 			b = 0.7f;
 	}
+	if( Raptor::Game->Cfg.SettingAsBool("debug") )
+		title += std::string(" - ID ") + Num::ToString((int)(mech->ID));
 	TitleFont->DrawText( title, Rect.w/2 + 2, 7, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
 	TitleFont->DrawText( title, Rect.w/2,     5, Font::ALIGN_TOP_CENTER, r,g,b,1.f );
 }
@@ -383,8 +385,12 @@ void RecordSheetPilot::Draw( void )
 	ItemFont->DrawText( skills, 10, y, Font::ALIGN_TOP_LEFT );
 	if( mech->HeatFire )
 		ItemFont->DrawText( std::string(" +") + Num::ToString(mech->HeatFire), 67, y, Font::ALIGN_TOP_LEFT, 1.f,1.f,0.f,1.f );
-	if( mech->PSRModifiers() )
-		ItemFont->DrawText( std::string(" +") + Num::ToString(mech->PSRModifiers()), 157, y, Font::ALIGN_TOP_LEFT, 1.f,1.f,0.f,1.f );
+	uint8_t psr_modifiers = mech->PSRModifiers();
+	if( psr_modifiers )
+	{
+		float g = ((mech->PilotSkill + psr_modifiers) > 12) ? 0.f : 1.f;
+		ItemFont->DrawText( std::string(" +") + Num::ToString(mech->PSRModifiers()), 157, y, Font::ALIGN_TOP_LEFT, 1.f,g,0.f,1.f );
+	}
 	
 	y += ItemFont->GetHeight();
 	std::string hits = std::string("Hits Taken: ") + Num::ToString(mech->PilotDamage);

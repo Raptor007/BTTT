@@ -174,7 +174,24 @@ bool Variant::Load( const char *filename )
 		
 		int loc = ptr[ 4 ] - 1;
 		bool rear = false;
-		if( loc >= BattleTech::Loc::COUNT )
+		//bool turret = false;
+		
+		if( loc == 17 )
+		{
+			loc = BattleTech::Loc::HEAD;
+			//turret = true;
+		}
+		else if( loc == 18 )
+		{
+			loc = BattleTech::Loc::LEFT_TORSO;
+			//turret = true;
+		}
+		else if( loc == 19 )
+		{
+			loc = BattleTech::Loc::RIGHT_TORSO;
+			//turret = true;
+		}
+		else if( loc >= BattleTech::Loc::COUNT )
 		{
 			loc -= BattleTech::Loc::COUNT;
 			rear = true;
