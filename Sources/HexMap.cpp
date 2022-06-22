@@ -79,6 +79,19 @@ bool HexTouch::operator < ( const HexTouch &other ) const
 
 ShotPath::ShotPath( void ) : std::vector<const Hex*>()
 {
+	Clear();
+}
+
+
+ShotPath::~ShotPath()
+{
+}
+
+
+void ShotPath::Clear( void )
+{
+	clear();
+	ECM.clear();
 	Modifier = 0;
 	Distance = 0;
 	LineOfSight = true;
@@ -87,8 +100,14 @@ ShotPath::ShotPath( void ) : std::vector<const Hex*>()
 }
 
 
-ShotPath::~ShotPath()
+bool ShotPath::ECMvsTeam( uint8_t team ) const
 {
+	for( std::map<uint32_t,uint8_t>::const_iterator ecm = ECM.begin(); ecm != ECM.end(); ecm ++ )
+	{
+		if( ecm->second != team )
+			return true;
+	}
+	return false;
 }
 
 
@@ -539,8 +558,9 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 	}
 	
 	const Hex *dest = &(Hexes[ x2 ][ y2 ]);
-	int8_t max_height = (here->Height >= dest->Height) ? here->Height : dest->Height;
-	int8_t max_los = (h1 >= h2) ? h1 : h2;
+	int8_t here_height = here->Height + h1;
+	int8_t dest_height = dest->Height + h2;
+	int8_t mid_height = std::max<int8_t>( here_height, dest_height );
 	
 	// Find all intervening hexes touched by the line.
 	for( std::vector< std::vector<Hex> >::const_iterator col = Hexes.begin(); col != Hexes.end(); col ++ )
@@ -554,37 +574,36 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 			if( LineCrosses( x1, y1, x2, y2, hex->X, hex->Y ) )
 			{
 				// Check height against higher of start/end unless adjacent to one of them.
-				int8_t check_height = max_height;
 				size_t here_dist = HexDist( hex->X, hex->Y, x1, y1 );
 				size_t dest_dist = HexDist( hex->X, hex->Y, x2, y2 );
-				if( (here_dist == 1) && (dest_dist == 1) )
-					check_height = (here->Height < dest->Height) ? here->Height : dest->Height;
-				else if( here_dist <= 1 )
-					check_height = here->Height;
-				else if( dest_dist <= 1 )
-					check_height = dest->Height;
-				int8_t rel_height = hex->Height - check_height;
+				uint8_t los_height = mid_height;
+				if( (here_dist == 1) && (dest_dist > 1) )
+					los_height = here_height;
+				else if( (dest_dist == 1) && (here_dist > 1) )
+					los_height = dest_height;
 				
 				// Cover 2 means fully blocked, cover 1 is partial cover adjacent to dest.
 				uint8_t cover = 0;
-				if( rel_height >= max_los )
+				if( hex->Height >= los_height )
 					cover = 2;
-				else if( (here_dist == 1) && ((hex->Height - here->Height) >= h1) )
-					cover = 2;
-				else if( (dest_dist == 1) && ((hex->Height - dest->Height) == 1) && ((dest->Height + h2) >= (here->Height + h1)) )
-					cover = (h2 == 1) ? 2 : 1;
-				
-				// Leg-mounted weapons cannot fire if the attacker has partial cover.
-				if( (here_dist == 1) && (rel_height >= 1) && ((here->Height + h1) >= (dest->Height + h2)) )
-					path.LegWeaponsBlocked = true;
+				else if( hex->Height == los_height - 1 )
+				{
+					if( (dest_dist == 1) && (dest_height >= here_height) )
+						cover = 1;
+					
+					// Leg-mounted weapons cannot fire if the attacker has partial cover.
+					if( (here_dist == 1) && (here_height >= dest_height) )
+						path.LegWeaponsBlocked = true;
+				}
 				
 				// Forests and standing mechs are 2 units tall.
-				uint8_t forest = (rel_height + 2 - h1 >= 0) ? hex->Forest : 0;
+				uint8_t forest = (hex->Height + 2 >= los_height) ? hex->Forest : 0;
 				
 				// Keep track of any hexes with ECM coverage.
-				std::set<uint8_t> team_ecms = TeamECMsAt( hex->X, hex->Y );
-				for( std::set<uint8_t>::const_iterator ecm = team_ecms.begin(); ecm != team_ecms.end(); ecm ++ )
-					path.TeamECMs.insert( *ecm );
+				// FIXME: If this match is along the hex edge and we keep the other hex for better defense, this hex's ECM should not apply.
+				std::set<const Mech*> mech_ecms = MechECMsAt( hex->X, hex->Y );
+				for( std::set<const Mech*>::const_iterator ecm = mech_ecms.begin(); ecm != mech_ecms.end(); ecm ++ )
+					path.ECM[ (*ecm)->ID ] = (*ecm)->Team;
 				
 				// Only mark hexes along the path that interfere with line-of-sight.
 				if( forest || cover )
@@ -592,6 +611,14 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 			}
 		}
 	}
+	
+	// Check start and end hexes for ECM coverage.
+	std::set<const Mech*> here_ecms = MechECMsAt( here->X, here->Y );
+	std::set<const Mech*> dest_ecms = MechECMsAt( dest->X, dest->Y );
+	for( std::set<const Mech*>::const_iterator ecm = here_ecms.begin(); ecm != here_ecms.end(); ecm ++ )
+		path.ECM[ (*ecm)->ID ] = (*ecm)->Team;
+	for( std::set<const Mech*>::const_iterator ecm = dest_ecms.begin(); ecm != dest_ecms.end(); ecm ++ )
+		path.ECM[ (*ecm)->ID ] = (*ecm)->Team;
 	
 	// Iterate over touched hexes until we've considered them all.
 	while( touched.size() )
@@ -736,7 +763,10 @@ Mech *HexMap::MechAt( int x, int y )
 			{
 				if( ! mech->Destroyed() )
 					return mech;
-				found = mech;
+				if( ! found )
+					found = mech;
+				else if( mech->HitClock.ElapsedSeconds() < found->HitClock.ElapsedSeconds() )
+					found = mech;
 			}
 		}
 	}
@@ -760,7 +790,10 @@ const Mech *HexMap::MechAt_const( int x, int y ) const
 			{
 				if( ! mech->Destroyed() )
 					return mech;
-				found = mech;
+				if( ! found )
+					found = mech;
+				else if( mech->HitClock.ElapsedSeconds() < found->HitClock.ElapsedSeconds() )
+					found = mech;
 			}
 		}
 	}
@@ -819,9 +852,9 @@ size_t HexMap::TeamsAt( int x, int y ) const
 }
 
 
-std::set<uint8_t> HexMap::TeamECMsAt( int x, int y ) const
+std::set<const Mech*> HexMap::MechECMsAt( int x, int y ) const
 {
-	std::set<uint8_t> ecm_teams;
+	std::set<const Mech*> ecm_mechs;
 	
 	for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data->GameObjects.begin(); obj_iter != Data->GameObjects.end(); obj_iter ++ )
 	{
@@ -832,11 +865,11 @@ std::set<uint8_t> HexMap::TeamECMsAt( int x, int y ) const
 			if( mech->ECM && ! mech->ECM->Damaged
 			&&  ! mech->Shutdown && ! mech->Destroyed()
 			&&  (HexDist( x, y, mech->X, mech->Y ) <= 6) )
-				ecm_teams.insert( mech->Team );
+				ecm_mechs.insert( mech );
 		}
 	}
 	
-	return ecm_teams;
+	return ecm_mechs;
 }
 
 

@@ -144,7 +144,7 @@ void HexBoard::Draw( void )
 			else
 				map->DrawHexOutline( x, y, 3.f, 1.0f,1.0f,1.0f,a );
 		}
-		else if( selected->Team )
+		else if( selected->Team && my_team )
 			map->DrawHexOutline( x, y, 3.f, 1.0f,0.0f,0.0f,a );
 		else
 			map->DrawHexOutline( x, y, 3.f, 1.0f,1.0f,0.0f,a );
@@ -169,8 +169,13 @@ void HexBoard::Draw( void )
 			{
 				r = 1.0f;
 				b = 0.0f;
-				if( target && ((target->Spotted < 99) || ( target->Narced() && ! (Path.TeamECMs.size() > Path.TeamECMs.count(selected->Team)) )) )
+				if( target && ((target->Spotted < 99) || ( target->Narced() && ! Path.ECMvsTeam(selected->Team) )) )
 					g = 0.9f;
+			}
+			if( target && (selected->DeclaredTarget == target->ID) )
+			{
+				r = g = b = 0.4f;
+				a = 0.9f;
 			}
 			for( ShotPath::const_iterator hex = Path.begin(); hex != Path.end(); hex ++ )
 			{
@@ -188,14 +193,38 @@ void HexBoard::Draw( void )
 	}
 	
 	
+	std::map< uint8_t, std::vector<GameObject*> > draw_order;
+	
 	for( std::map<uint32_t,GameObject*>::iterator obj_iter = game->Data.GameObjects.begin(); obj_iter != game->Data.GameObjects.end(); obj_iter ++ )
 	{
-		if( obj_iter->second != map )
-			obj_iter->second->Draw();
+		if( obj_iter->second == map )
+			continue;  // Map was already drawn.
+		else if( obj_iter->second->Type() == BattleTech::Object::MECH )
+		{
+			Mech *mech = (Mech*) obj_iter->second;
+			if( mech->MoveClock.Progress() < 1. )
+				draw_order[ 4 ].push_back( mech );
+			else if( ! mech->Destroyed() )
+				draw_order[ 3 ].push_back( mech );
+			else if( map->MechAt_const( mech->X, mech->Y ) == mech )
+				draw_order[ 2 ].push_back( mech );
+			else
+				draw_order[ 1 ].push_back( mech );
+		}
+		else
+			draw_order[ 5 ].push_back( obj_iter->second );
 	}
+	
+	for( std::map< uint8_t, std::vector<GameObject*> >::iterator draw = draw_order.begin(); draw != draw_order.end(); draw ++ )
+		for( std::vector<GameObject*>::iterator obj_iter = draw->second.begin(); obj_iter != draw->second.end(); obj_iter ++ )
+			(*obj_iter)->Draw();
+	
 	
 	for( std::list<Effect>::iterator effect = game->Data.Effects.begin(); effect != game->Data.Effects.end(); effect ++ )
 		effect->Draw();
+	
+	
+	#define SHOW_HIT_TIME 3.5
 	
 	for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = game->Data.GameObjects.begin(); obj_iter != game->Data.GameObjects.end(); obj_iter ++ )
 	{
@@ -206,31 +235,54 @@ void HexBoard::Draw( void )
 			uint8_t x, y;
 			mech->GetPosition( &x, &y );
 			Pos3D pos = map->Center( x, y );
+			std::string att_str, def_str, spot_str;
+			Vec3D shadow( 0.01, 0.02 );
+			float alpha = 1.f;
 			
-			if( (mech->TookTurn || (game->State > BattleTech::State::MOVEMENT)) && ! playing_events && (game->State < BattleTech::State::END) )
+			if( playing_events || (game->State >= BattleTech::State::END) )
+				;
+			else if( mech->TookTurn || ((game->State > BattleTech::State::MOVEMENT) && ! mech->Destroyed()) )
 			{
-				std::string att_str = std::string("+") + Num::ToString(mech->Attack);
-				std::string def_str = std::string(/*mech->Tagged?" +":*/"+") + Num::ToString(mech->Defense) + std::string(/*mech->Tagged?"*":*/" ");
-				Pos3D att = pos + Vec2D( 0.5, 0.1 );
-				Pos3D def = pos + Vec2D( 0.3, 0.4 );
-				Vec3D shadow( 0.01, 0.02 );
-				Pos3D att2 = att + shadow;
-				Pos3D def2 = def + shadow;
-				TurnFont->DrawText3D( att_str, &att2, Font::ALIGN_MIDDLE_CENTER, 0.f,0.f,0.f,0.6f, 0.016 );
-				TurnFont->DrawText3D( def_str, &def2, Font::ALIGN_MIDDLE_CENTER, 0.f,0.f,0.f,0.6f, 0.016 );
-				TurnFont->DrawText3D( att_str, &att, Font::ALIGN_MIDDLE_CENTER, 1.0f,0.4f,0.1f,1.f, 0.016 );
-				TurnFont->DrawText3D( def_str, &def, Font::ALIGN_MIDDLE_CENTER, 0.1f,0.6f,1.0f,1.f, 0.016 );
+				att_str = std::string("+") + Num::ToString(mech->Attack);
+				def_str = std::string(/*mech->Tagged?" +":*/"+") + Num::ToString(mech->Defense) + std::string(/*mech->Tagged?"*":*/" ");
 				if( mech->Spotted < 99 )
+					spot_str = std::string((mech->Spotted >= 0)?"+":"") + Num::ToString(mech->Spotted);
+			}
+			else if( (game->State == BattleTech::State::MOVEMENT) && mech->Steps.size() )
+			{
+				uint8_t move_mode = mech->SpeedNeeded(true);
+				if( move_mode != BattleTech::Speed::INVALID )
 				{
-					std::string spot_str = std::string((mech->Spotted >= 0)?"+":"") + Num::ToString(mech->Spotted);
-					Pos3D spot = pos + Vec2D( -0.3, 0.4 );
-					Pos3D spot2 = spot + shadow;
-					TurnFont->DrawText3D( spot_str, &spot2, Font::ALIGN_MIDDLE_CENTER, 0.f,0.f,0.f,0.6f, 0.016 );
-					TurnFont->DrawText3D( spot_str, &spot, Font::ALIGN_MIDDLE_CENTER, 1.0f,0.8f,0.1f,1.f, 0.016 );
+					uint8_t entered = mech->EnteredHexes( move_mode );
+					att_str = std::string("+") + Num::ToString(mech->AttackPenalty(move_mode));
+					def_str = std::string("+") + Num::ToString(mech->DefenseBonus(move_mode,entered));
+					alpha = 0.25f + 0.75f * fabsf(cosf( mech->Lifetime.ElapsedSeconds() * M_PI ));
 				}
 			}
 			
-			if( (mech->HitClock.ElapsedSeconds() <= 3.5) && (mech->Lifetime.ElapsedSeconds() > 3.5) && ! game->GetRecordSheet(mech) )
+			if( att_str.length() )
+			{
+				Pos3D att = pos + Vec2D( 0.5, 0.1 );
+				Pos3D att2 = att + shadow;
+				TurnFont->DrawText3D( att_str, &att2, Font::ALIGN_MIDDLE_CENTER, 0.f,0.f,0.f,alpha*0.6f, 0.016 );
+				TurnFont->DrawText3D( att_str, &att, Font::ALIGN_MIDDLE_CENTER, 1.0f,0.4f,0.1f,alpha*1.f, 0.016 );
+			}
+			if( def_str.length() )
+			{
+				Pos3D def = pos + Vec2D( 0.3, 0.4 );
+				Pos3D def2 = def + shadow;
+				TurnFont->DrawText3D( def_str, &def2, Font::ALIGN_MIDDLE_CENTER, 0.f,0.f,0.f,alpha*0.6f, 0.016 );
+				TurnFont->DrawText3D( def_str, &def, Font::ALIGN_MIDDLE_CENTER, 0.1f,0.6f,1.0f,alpha*1.f, 0.016 );
+			}
+			if( spot_str.length() )
+			{
+				Pos3D spot = pos + Vec2D( -0.3, 0.4 );
+				Pos3D spot2 = spot + shadow;
+				TurnFont->DrawText3D( spot_str, &spot2, Font::ALIGN_MIDDLE_CENTER, 0.f,0.f,0.f,alpha*0.6f, 0.016 );
+				TurnFont->DrawText3D( spot_str, &spot, Font::ALIGN_MIDDLE_CENTER, 1.0f,0.8f,0.1f,alpha*1.f, 0.016 );
+			}
+			
+			if( (mech->HitClock.ElapsedSeconds() <= SHOW_HIT_TIME) && (mech->Lifetime.ElapsedSeconds() > SHOW_HIT_TIME) && ! game->GetRecordSheet(mech) )
 			{
 				double zoomed_h = game->Gfx.H / (game->Zoom * 2.);
 				double scale = std::max<double>( 0.1 * zoomed_h, std::min<double>( 1., 0.2 * zoomed_h ) );
@@ -253,7 +305,7 @@ void HexBoard::Draw( void )
 	
 	if( moused )
 	{
-		if( (moused->HitClock.ElapsedSeconds() > 3.5) && ! game->GetRecordSheet(moused) )
+		if( (moused->HitClock.ElapsedSeconds() > SHOW_HIT_TIME) && ! game->GetRecordSheet(moused) )
 			moused->DrawHealth( game->Mouse.X - 64, game->Mouse.Y + 35, game->Mouse.X + 64, game->Mouse.Y + 163 );
 		
 		std::string name = moused->ShortFullName();
@@ -323,7 +375,7 @@ void HexBoard::Draw( void )
 	{
 		uint8_t move_mode = selected->MoveSpeed ? selected->MoveSpeed : selected->SpeedNeeded(true);
 		uint8_t step_cost = selected->StepCost();
-		if( move_mode == BattleTech::Move::JUMP )
+		if( move_mode == BattleTech::Speed::JUMP )
 		{
 			uint8_t x, y;
 			selected->GetPosition( &x, &y );
@@ -341,21 +393,21 @@ void HexBoard::Draw( void )
 		
 		status += selected->MPString( selected->MoveSpeed );
 		
-		if( move_mode == BattleTech::Move::WALK )
+		if( move_mode == BattleTech::Speed::WALK )
 			status += " walking.";
-		else if( (move_mode == BattleTech::Move::RUN) && (step_cost > selected->RunDist()) )
+		else if( (move_mode == BattleTech::Speed::RUN) && (step_cost > selected->RunDist()) )
 			status += " running with Minimum Movement rule.";
-		else if( move_mode == BattleTech::Move::RUN )
+		else if( move_mode == BattleTech::Speed::RUN )
 			status += " running.";
-		else if( move_mode == BattleTech::Move::MASC )
+		else if( move_mode == BattleTech::Speed::MASC )
 			status += " with MASC.";
-		else if( move_mode == BattleTech::Move::SUPERCHARGE )
+		else if( move_mode == BattleTech::Speed::SUPERCHARGE )
 			status += " with Supercharger.";
-		else if( move_mode == BattleTech::Move::MASC_SUPERCHARGE )
+		else if( move_mode == BattleTech::Speed::MASC_SUPERCHARGE )
 			status += " with MASC and Supercharger.";
-		else if( move_mode == BattleTech::Move::JUMP )
+		else if( move_mode == BattleTech::Speed::JUMP )
 			status += " jumping.";
-		else if( move_mode == BattleTech::Move::INVALID )
+		else if( move_mode == BattleTech::Speed::INVALID )
 			status += ", an invalid move.";
 		else
 			status += ".";
@@ -374,11 +426,24 @@ void HexBoard::Draw( void )
 			status = selected->ShortName() + std::string(" cannot move this turn.  Press Enter to skip.");
 		else if( selected->StandAttempts && (! selected->Prone) && (selected->WalkDist() == 1) )
 			status = selected->ShortName() + std::string(" stood using Minimum Movement rule.");
+		
+		if( (move_mode >= BattleTech::Speed::WALK) && game->Cfg.SettingAsBool("debug") )
+		{
+			uint8_t entered = selected->EnteredHexes( move_mode );
+			status += std::string("  [A+") + Num::ToString(selected->AttackPenalty(move_mode))
+			       +  std::string(" H+") + Num::ToString(selected->MovementHeat(move_mode,entered))
+			       +  std::string(" E") + Num::ToString(entered)
+			       +  std::string(" D+") + Num::ToString(selected->DefenseBonus(move_mode,entered)) + std::string("]");
+		}
 	}
 	else if( (game->State >= BattleTech::State::TAG) && (game->State <= BattleTech::State::PHYSICAL_ATTACK) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == my_team) )
 	{
 		if( ! selected->ReadyAndAble() )
-			status = selected->ShortName() + std::string(" cannot ") + game->PhaseName() + std::string(" this turn.  Press Enter to skip.");
+		{
+			status = selected->ShortName() + std::string(" cannot ") + game->PhaseName() + std::string(" this turn.");
+			if( (game->State == BattleTech::State::MOVEMENT) || (game->State == BattleTech::State::WEAPON_ATTACK) )
+				status += std::string("  Press Enter to skip.");
+		}
 		else if( target && Path.LineOfSight && (WeaponsInRange.size() || (game->State == BattleTech::State::PHYSICAL_ATTACK)) )
 			status = std::string("Press Enter to submit ") + game->PhaseName() + std::string(" target: ") + target->ShortName();
 		else if( Path.size() )
@@ -411,7 +476,12 @@ void HexBoard::Draw( void )
 			else if( game->Layers.Find("GameMenu") )
 			{
 				if( game->ReadyToBegin() )
-					status = "When everyone is ready, click Initiate Combat.";
+				{
+					if( game->Admin() )
+						status = "When everyone is ready, click Initiate Combat.";
+					else
+						status = "Waiting for host to Initiate Combat.";
+				}
 				else
 					status = "Set game options, then click Team/Mech to begin.";
 			}
@@ -427,7 +497,12 @@ void HexBoard::Draw( void )
 				if( (hotseat || ai) && ! game->ReadyToBegin() )
 					status = "Press Tab to spawn for the other team.  When done, press Enter.";
 				else if( game->ReadyToBegin() )
-					status = "When everyone is ready to play, press Enter.";
+				{
+					if( game->Admin() )
+						status = "When everyone is ready to play, press Enter.";
+					else
+						status = "Waiting for host to Initiate Combat.";
+				}
 				else
 					status = "Use arrows to move spawn point and Enter to submit.";
 			}
@@ -476,10 +551,20 @@ bool HexBoard::MouseDown( Uint8 button )
 			game->SelectedID = selected ? selected->ID : 0;
 			target = NULL;
 			game->TargetID = 0;
-			ClearPath();
 			
 			if( selected )
 				game->Snd.Play( game->Res.GetSound("i_select.wav") );
+			
+			if( selected && selected->DeclaredTarget )
+			{
+				ClearPath();  // FIXME: This should be ClearPath( false ) when UpdateWeaponsInRange no longer shows to-hit for undeclared weapons.
+				game->TargetID = selected->DeclaredTarget;
+				target = game->TargetMech();
+				Path = map->Path( selected->X, selected->Y, target->X, target->Y );
+				//UpdateWeaponsInRange( selected, target );  // FIXME: Only show to-hit for declared weapons.
+			}
+			else
+				ClearPath();
 		}
 	}
 	else if( button == SDL_BUTTON_MIDDLE )
@@ -579,13 +664,27 @@ bool HexBoard::MouseDown( Uint8 button )
 			// Close the SpawnMenu after we drop a 'Mech so we can use arrow keys to move it.
 			RemoveSetupMenus();
 		}
+		/*
+		// Prevent trying other targets when a Mech has already declared its shot.
+		// FIXME: Commented-out because this currently prevents seeing the to-hit rolls of declared shots.
+		else if( (game->State >= BattleTech::State::TAG) && selected && selected->TookTurn )
+			;
+		*/
 		else if( selected )
 		{
 			uint8_t x = 0, y = 0, facing = BattleTech::Dir::UP;
 			selected->GetPosition( &x, &y, &facing );
-			ClearPath( false );
-			Path = map->Path( x, y, hex->X, hex->Y );
-			target = map->MechAt( hex->X, hex->Y );
+			if( hex )
+			{
+				ClearPath( false );
+				Path = map->Path( x, y, hex->X, hex->Y );
+				target = map->MechAt( hex->X, hex->Y );
+			}
+			else
+			{
+				ClearPath();
+				target = NULL;
+			}
 			if( ! target )
 				;
 			else if( (target == selected) || target->Destroyed() )
@@ -609,7 +708,7 @@ bool HexBoard::MouseDown( Uint8 button )
 			
 			if( game->Cfg.SettingAsBool("debug") )
 			{
-				bool ecm = Path.TeamECMs.size() > Path.TeamECMs.count(selected->Team);
+				bool ecm = Path.ECMvsTeam( selected->Team );
 				std::string msg = "Dist from ";
 				msg += Num::ToString((*(Path.begin()))->X) + std::string(" ") + Num::ToString((*(Path.begin()))->Y);
 				msg += std::string(" to ");
@@ -775,7 +874,7 @@ bool HexBoard::KeyDown( SDLKey key )
 	else if( key == SDLK_d )
 		game->X += 150. / game->Zoom;
 	
-	else if( (key >= SDLK_F1) && (key <= SDLK_F15) && (game->State == BattleTech::State::SETUP) )
+	else if( (key >= SDLK_F1) && (key <= SDLK_F15) && ((game->State == BattleTech::State::SETUP) || ! game->MyTeam()) )
 	{
 		int teams = game->Data.PropertyAsInt("teams",2);
 		int team = key + 1 - SDLK_F1;
@@ -837,8 +936,8 @@ bool HexBoard::KeyDown( SDLKey key )
 		return false;
 	else if( ((key == SDLK_RETURN) || (key == SDLK_KP_ENTER)) && ! enemy_turn && ! playing_events )
 	{
-		uint8_t speed = (game->State == BattleTech::State::SETUP) ? (uint8_t) BattleTech::Move::JUMP : selected->SpeedNeeded(true);
-		if( (game->State == BattleTech::State::MOVEMENT) && selected->Steps.size() && (speed == BattleTech::Move::INVALID) )
+		uint8_t speed = (game->State == BattleTech::State::SETUP) ? (uint8_t) BattleTech::Speed::JUMP : selected->SpeedNeeded(true);
+		if( (game->State == BattleTech::State::MOVEMENT) && selected->Steps.size() && (speed == BattleTech::Speed::INVALID) )
 			game->Snd.Play( game->Res.GetSound("i_toofar.wav") );
 		else if( (game->State == BattleTech::State::MOVEMENT)
 		||      ((game->State == BattleTech::State::SETUP) && selected->Steps.size()) )
@@ -933,7 +1032,7 @@ bool HexBoard::KeyDown( SDLKey key )
 					arc_and_flags |= 0x80; // Indirect Fire
 				else if( Path.PartialCover )
 					arc_and_flags |= 0x40; // Leg Partial Cover
-				if( Path.TeamECMs.size() > Path.TeamECMs.count(selected->Team) )
+				if( Path.ECMvsTeam( selected->Team ) )
 					arc_and_flags |= 0x20; // Within Friendly ECM
 				if( target->Narced() && (Path.LineOfSight || (target->Spotted < 99)) )
 					arc_and_flags |= 0x10; // NARC Cluster Bonus (with exceptions in MechEquipment::ClusterHits)
@@ -1032,7 +1131,7 @@ bool HexBoard::KeyDown( SDLKey key )
 	else if( ((key == SDLK_DELETE) || ((key == SDLK_BACKSPACE) && shift)) && ! enemy_turn )
 	{
 		if( game->State != BattleTech::State::MOVEMENT )
-			game->Snd.Play( game->Res.GetSound( selected->Destroyed() ? "i_blip.wav" : "b_eject.wav" ) );
+			game->Snd.Play( game->Res.GetSound( (game->State == BattleTech::State::GAME_OVER) || selected->Destroyed() ? "i_blip.wav" : "b_eject.wav" ) );
 		
 		Packet remove_mech( BattleTech::Packet::REMOVE_MECH );
 		remove_mech.AddUInt( selected->ID );
@@ -1056,21 +1155,21 @@ bool HexBoard::KeyDown( SDLKey key )
 		{
 			if( key == SDLK_UP )
 			{
-				bool masc = shift && selected->MASCDist( BattleTech::Move::MASC );
-				bool supercharge = alt && selected->MASCDist( BattleTech::Move::SUPERCHARGE );
+				bool masc = shift && selected->MASCDist( BattleTech::Speed::MASC );
+				bool supercharge = alt && selected->MASCDist( BattleTech::Speed::SUPERCHARGE );
 				if( masc && supercharge )
-					selected->MoveSpeed = BattleTech::Move::MASC_SUPERCHARGE;
+					selected->MoveSpeed = BattleTech::Speed::MASC_SUPERCHARGE;
 				else if( masc )
-					selected->MoveSpeed = BattleTech::Move::MASC;
+					selected->MoveSpeed = BattleTech::Speed::MASC;
 				else if( supercharge )
-					selected->MoveSpeed = BattleTech::Move::SUPERCHARGE;
+					selected->MoveSpeed = BattleTech::Speed::SUPERCHARGE;
 				else
-					selected->MoveSpeed = BattleTech::Move::RUN;
+					selected->MoveSpeed = BattleTech::Speed::RUN;
 			}
 			else if( selected->WalkDist() < 2 ) // Minimum Movement Rule
-				selected->MoveSpeed = BattleTech::Move::RUN;
+				selected->MoveSpeed = BattleTech::Speed::RUN;
 			else
-				selected->MoveSpeed = BattleTech::Move::WALK;
+				selected->MoveSpeed = BattleTech::Speed::WALK;
 		}
 		
 		Packet stand( BattleTech::Packet::STAND );
@@ -1081,11 +1180,10 @@ bool HexBoard::KeyDown( SDLKey key )
 	else if( (key == SDLK_UP) && (! selected->Prone) && selected->ReadyAndAble() && ! playing_events )
 	{
 		selected->Animate( 0.05 );
-		if( selected->Step(BattleTech::Move::WALK) )
+		if( selected->Step( BattleTech::Move::FORWARD ) )
 		{
 			game->Snd.Play( game->Res.GetSound("m_step.wav") );
-			game->TargetID = 0;
-			ClearPath();
+			UpdateAim();
 		}
 		else
 			game->Snd.Play( game->Res.GetSound("i_toofar.wav") );
@@ -1093,11 +1191,10 @@ bool HexBoard::KeyDown( SDLKey key )
 	else if( (key == SDLK_DOWN) && (! selected->Prone) && selected->ReadyAndAble() && ! playing_events )
 	{
 		selected->Animate( 0.05 );
-		if( selected->Step(BattleTech::Move::REVERSE) )
+		if( selected->Step( BattleTech::Move::REVERSE ) )
 		{
 			game->Snd.Play( game->Res.GetSound("m_step.wav") );
-			game->TargetID = 0;
-			ClearPath();
+			UpdateAim();
 		}
 		else
 			game->Snd.Play( game->Res.GetSound("i_toofar.wav") );
@@ -1108,8 +1205,7 @@ bool HexBoard::KeyDown( SDLKey key )
 		if( selected->Turn(-1) )
 		{
 			game->Snd.Play( game->Res.GetSound("m_turn.wav") );
-			game->TargetID = 0;
-			ClearPath();
+			UpdateAim();
 		}
 		else
 			game->Snd.Play( game->Res.GetSound("i_toofar.wav") );
@@ -1120,8 +1216,7 @@ bool HexBoard::KeyDown( SDLKey key )
 		if( selected->Turn(1) )
 		{
 			game->Snd.Play( game->Res.GetSound("m_turn.wav") );
-			game->TargetID = 0;
-			ClearPath();
+			UpdateAim();
 		}
 		else
 			game->Snd.Play( game->Res.GetSound("i_toofar.wav") );
@@ -1131,8 +1226,7 @@ bool HexBoard::KeyDown( SDLKey key )
 		selected->Animate( 0.05 );
 		selected->Steps.pop_back();
 		game->Snd.Play( game->Res.GetSound("i_blip.wav") );
-		game->TargetID = 0;
-		ClearPath();
+		UpdateAim();
 	}
 	else
 		return false;
@@ -1142,7 +1236,7 @@ bool HexBoard::KeyDown( SDLKey key )
 
 void HexBoard::ClearPath( bool remove_menu )
 {
-	Path.clear();
+	Path.Clear();
 	WeaponsInRange.clear();
 	PossibleMelee.clear();
 	if( remove_menu )
@@ -1170,6 +1264,32 @@ void HexBoard::RemoveSetupMenus( void ) const
 }
 
 
+void HexBoard::UpdateAim( void )
+{
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+	Mech *selected = game->SelectedMech();
+	const Mech *target = game->TargetMech();
+	if( selected && target && ! selected->Destroyed() && ! target->Destroyed() )
+	{
+		uint8_t x1, y1, x2, y2;
+		selected->GetPosition( &x1, &y1 );
+		target->GetPosition(   &x2, &y2 );
+		bool repath = true;
+		if( Path.size() )
+		{
+			const Hex *hex1 = *(Path.begin());
+			const Hex *hex2 = *(Path.rbegin());
+			repath = (x1 != hex1->X) || (y1 != hex1->Y) || (x2 != hex2->X) || (y2 != hex2->Y);
+		}
+		if( repath )
+			Path = game->Map()->Path( x1, y1, x2, y2 );
+		UpdateWeaponsInRange( selected, target );
+	}
+	else
+		ClearPath();
+}
+
+
 void HexBoard::UpdateWeaponsInRange( Mech *selected, const Mech *target )
 {
 	HexBoardAim::UpdateWeaponsInRange( selected, target, Raptor::Game->State );
@@ -1178,7 +1298,12 @@ void HexBoard::UpdateWeaponsInRange( Mech *selected, const Mech *target )
 	{
 		selected->SelectedMelee.clear(); // FIXME: Remember previous choice?
 		
-		if( PossibleMelee.size() && ! selected->SelectedMelee.size() )
+		if( ! PossibleMelee.size() )
+		{
+			RemoveWeaponMenu();
+			return;
+		}
+		else if( ! selected->SelectedMelee.size() )
 			selected->SelectedMelee.insert( *(PossibleMelee.begin()) );
 	}
 	
@@ -1201,6 +1326,7 @@ void HexBoard::UpdateWeaponsInRange( Mech *selected, const Mech *target )
 void HexBoardAim::UpdateWeaponsInRange( const Mech *selected, const Mech *target, int state )
 {
 	WeaponsInRange.clear();
+	PossibleMelee.clear();
 	
 	if( !(selected && target) )
 		return;
@@ -1211,11 +1337,11 @@ void HexBoardAim::UpdateWeaponsInRange( const Mech *selected, const Mech *target
 	if( state == BattleTech::State::MOVEMENT )
 	{
 		uint8_t speed = selected->SpeedNeeded();
-		if( speed == BattleTech::Move::WALK )
+		if( speed == BattleTech::Speed::WALK )
 			modifier = 1;
-		else if( (speed >= BattleTech::Move::RUN) && (speed <= BattleTech::Move::MASC_SUPERCHARGE) )
+		else if( (speed >= BattleTech::Speed::RUN) && (speed <= BattleTech::Speed::MASC_SUPERCHARGE) )
 			modifier = 2;
-		else if( speed == BattleTech::Move::JUMP )
+		else if( speed == BattleTech::Speed::JUMP )
 			modifier = 3;
 	}
 	
@@ -1247,7 +1373,7 @@ void HexBoardAim::UpdateWeaponsInRange( const Mech *selected, const Mech *target
 		if( target->Immobile() )
 			modifier -= 4;
 		
-		bool ecm = Path.TeamECMs.size() > Path.TeamECMs.count(selected->Team);
+		bool ecm = Path.ECMvsTeam( selected->Team );
 		
 		int8_t trees = Path.PartialCover ? (Path.Modifier - 1) : Path.Modifier;
 		if( trees && (! ecm) && (Path.Distance <= selected->ActiveProbeRange()) )
@@ -1260,8 +1386,8 @@ void HexBoardAim::UpdateWeaponsInRange( const Mech *selected, const Mech *target
 
 Packet *HexBoardAim::CreatePacket( const Mech *selected, const Mech *target, int state ) const
 {
-	uint8_t speed = (state == BattleTech::State::SETUP) ? (uint8_t) BattleTech::Move::JUMP : selected->SpeedNeeded(true);
-	if( (state == BattleTech::State::MOVEMENT) && selected->Steps.size() && (speed == BattleTech::Move::INVALID) )
+	uint8_t speed = (state == BattleTech::State::SETUP) ? (uint8_t) BattleTech::Speed::JUMP : selected->SpeedNeeded(true);
+	if( (state == BattleTech::State::MOVEMENT) && selected->Steps.size() && (speed == BattleTech::Speed::INVALID) )
 		return NULL;
 	else if( (state == BattleTech::State::MOVEMENT)
 	||      ((state == BattleTech::State::SETUP) && selected->Steps.size()) )
@@ -1353,7 +1479,7 @@ Packet *HexBoardAim::CreatePacket( const Mech *selected, const Mech *target, int
 				arc_and_flags |= 0x80; // Indirect Fire
 			else if( Path.PartialCover )
 				arc_and_flags |= 0x40; // Leg Partial Cover
-			if( Path.TeamECMs.size() > Path.TeamECMs.count(selected->Team) )
+			if( Path.ECMvsTeam( selected->Team ) )
 				arc_and_flags |= 0x20; // Within Friendly ECM
 			if( target->Narced() && (Path.LineOfSight || (target->Spotted < 99)) )
 				arc_and_flags |= 0x10; // NARC Cluster Bonus (with exceptions in MechEquipment::ClusterHits)

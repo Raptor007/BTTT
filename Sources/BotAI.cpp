@@ -167,12 +167,28 @@ void BotAI::TakeTurn( void )
 		if( mech->Prone && mech->CanStand() && ! mech->Unconscious && ! mech->Shutdown )
 		{
 			if( ! mech->MoveSpeed )
-				mech->MoveSpeed = BattleTech::Move::RUN; // FIXME: Choose walk/run intelligently?
+			{
+				mech->MoveSpeed = BattleTech::Speed::RUN; // FIXME: Choose walk/run intelligently?
+				
+				// If running would trigger additional PSRs for damaged Gyro/Hip, stand walking instead.
+				if( (mech->WalkDist() >= 2) && (mech->DamagedCriticalCount(BattleTech::Equipment::GYRO) || mech->DamagedCriticalCount(BattleTech::Equipment::HIP)) )
+					mech->MoveSpeed = BattleTech::Speed::WALK;
+				
+				/*
+				// If we can safely use MASC or Supercharger to stand, make it so.
+				else if( mech->MASCDist(BattleTech::Speed::MASC) && ! mech->MASCTurns )
+					mech->MoveSpeed = BattleTech::Speed::MASC;
+				else if( mech->MASCDist(BattleTech::Speed::SUPERCHARGE) && ! mech->SuperchargerTurns )
+					mech->MoveSpeed = BattleTech::Speed::SUPERCHARGE;
+				*/
+			}
 			
 			Packet p( BattleTech::Packet::STAND );
 			p.AddUInt( mech->ID );
 			p.AddUChar( mech->MoveSpeed );
 			server->ProcessPacket( &p, NULL );
+			
+			mech->StandAttempts ++;
 		}
 		else
 		{
@@ -194,13 +210,13 @@ void BotAI::TakeTurn( void )
 				
 				mech->Steps.clear();
 				
-				while( (mech->SpeedNeeded() != BattleTech::Move::INVALID) && (mech->Steps.size() < 100) )
+				while( (mech->SpeedNeeded() != BattleTech::Speed::INVALID) && (mech->Steps.size() < 100) )
 				{
 					BotAIAim aim;
 					aim.Initialize( mech, target, server->State, map );
 					double value = aim.Value();
 					
-					if( (value > best_value) && (mech->SpeedNeeded(true) != BattleTech::Move::INVALID) )
+					if( (value > best_value) && (mech->SpeedNeeded(true) != BattleTech::Speed::INVALID) )
 					{
 						best_steps = mech->Steps;
 						best_value = value;
@@ -224,12 +240,12 @@ void BotAI::TakeTurn( void )
 					else
 					{
 						// FIXME: Consider reverse movement, as it may improve chances to hit with minimum ranges.
-						if( ! mech->Step( BattleTech::Move::WALK ) )
+						if( ! mech->Step( BattleTech::Move::FORWARD ) )
 						{
 							// Try to walk around the obstruction.
 							if( ! mech->Turn( Rand::Bool() ? -1 : 1 ) )
 								break;
-							if( ! mech->Step( BattleTech::Move::WALK ) )
+							if( ! mech->Step( BattleTech::Move::FORWARD ) )
 								break;
 						}
 					}
@@ -239,7 +255,7 @@ void BotAI::TakeTurn( void )
 			mech->Steps = best_steps;
 			
 			uint8_t speed_needed = mech->SpeedNeeded(true);
-			if( (speed_needed == BattleTech::Move::JUMP) && best_target )
+			if( (speed_needed == BattleTech::Speed::JUMP) && best_target )
 			{
 				// If we're jumping, select the best possible landing orientation.
 				for( size_t i = 0; i < 6; i ++ )
@@ -250,7 +266,7 @@ void BotAI::TakeTurn( void )
 					aim.Initialize( mech, best_target, server->State, map );
 					double value = aim.Value();
 					
-					if( (value > best_value) && (mech->SpeedNeeded(true) != BattleTech::Move::INVALID) )
+					if( (value > best_value) && (mech->SpeedNeeded(true) != BattleTech::Speed::INVALID) )
 					{
 						best_steps = mech->Steps;
 						best_value = value;
@@ -329,34 +345,23 @@ void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexM
 		ValueBonus += (180. - fabs(angle)) * 0.0001;
 		
 		// Prefer moving far enough for a better defense bonus.
-		int entered = 0;
-		if( speed == BattleTech::Move::JUMP )
-		{
-			entered = map->HexDist( From->X, From->Y, x, y );
-			ValueBonus += 1.;
-		}
-		else
-		{
-			for( std::vector<MechStep>::const_iterator step = From->Steps.begin(); step != From->Steps.end(); step ++ )
-				entered += step->Step; // FIXME: This will not be correct if the AI uses reverse movement.
-		}
-		if( entered >= 25 )
-			ValueBonus += 6.;
-		else if( entered >= 18 )
-			ValueBonus += 5.;
-		else if( entered >= 10 )
-			ValueBonus += 4.;
-		else if( entered >= 7 )
-			ValueBonus += 3.;
-		else if( entered >= 5 )
-			ValueBonus += 2.;
-		else if( entered >= 3 )
-			ValueBonus += 1.;
+		ValueBonus += From->DefenseBonus();
+		
+		// Avoid running/jumping with damaged criticals that trigger PSR.
+		size_t run_psr = (From->Gyro ? From->Gyro->Damaged : 0) + From->DamagedCriticalCount( BattleTech::Equipment::HIP );
+		size_t jump_psr = From->DamagedCriticalCount( BattleTech::Equipment::UPPER_LEG_ACTUATOR )
+		                + From->DamagedCriticalCount( BattleTech::Equipment::LOWER_LEG_ACTUATOR )
+		                + From->DamagedCriticalCount( BattleTech::Equipment::FOOT_ACTUATOR )
+		                + run_psr;
+		if( (speed == BattleTech::Speed::JUMP) && jump_psr )
+			ValueBonus -= jump_psr * (From->PSRModifiers() + From->PilotSkill);
+		else if( (speed >= BattleTech::Speed::RUN) && run_psr && ! From->Prone )
+			ValueBonus -= run_psr * (From->PSRModifiers() + From->PilotSkill);
 		
 		// Avoid using MASC or Supercharger multiple times in a row.
-		if( (speed == BattleTech::Move::MASC) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
+		if( (speed == BattleTech::Speed::MASC) || (speed == BattleTech::Speed::MASC_SUPERCHARGE) )
 			ValueBonus -= 10. * From->MASCTurns;
-		if( (speed == BattleTech::Move::SUPERCHARGE) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
+		if( (speed == BattleTech::Speed::SUPERCHARGE) || (speed == BattleTech::Speed::MASC_SUPERCHARGE) )
 			ValueBonus -= 10. * From->SuperchargerTurns;
 	}
 	

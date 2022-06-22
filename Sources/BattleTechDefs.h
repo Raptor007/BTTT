@@ -62,12 +62,15 @@ namespace BattleTech
 			NONE = 0,
 			ATTENTION,
 			BLINK,
-			STEP,
+			FIRST_MOVEMENT,
+			STEP = FIRST_MOVEMENT,
 			TURN,
 			JUMP,
 			FALL,
 			STAND,
 			TORSO_TWIST,
+			LAST_MOVEMENT = TORSO_TWIST,
+			DECLARE_ATTACK,
 			EXPLOSION,
 			SMOKE,
 			FIRST_WEAPON,
@@ -153,17 +156,25 @@ namespace BattleTech
 	{
 		enum
 		{
+			FORWARD,
+			REVERSE,
+			LEFT,
+			RIGHT
+		};
+	}
+
+	namespace Speed
+	{
+		enum
+		{
 			INVALID = 0,
 			STOP,
 			WALK,
-			REVERSE,
 			RUN,
 			MASC,
 			SUPERCHARGE,
 			MASC_SUPERCHARGE,
-			JUMP,
-			LEFT,
-			RIGHT
+			JUMP
 		};
 	}
 	

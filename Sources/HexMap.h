@@ -49,10 +49,12 @@ public:
 	bool LineOfSight;
 	bool PartialCover;
 	bool LegWeaponsBlocked;
-	std::set<uint8_t> TeamECMs;
+	std::map<uint32_t,uint8_t> ECM;
 	
 	ShotPath( void );
 	virtual ~ShotPath();
+	void Clear( void );
+	bool ECMvsTeam( uint8_t team ) const;
 };
 
 
@@ -101,7 +103,7 @@ public:
 	const Mech *MechAt_const( int x, int y ) const;
 	size_t MechsAt( int x, int y ) const;
 	size_t TeamsAt( int x, int y ) const;
-	std::set<uint8_t> TeamECMsAt( int x, int y ) const;
+	std::set<const Mech*> MechECMsAt( int x, int y ) const;
 	
 	void Draw( void );
 	void DrawHexOutline( int x, int y, float thickness, float r, float g, float b, float a = 0.9f ) const;

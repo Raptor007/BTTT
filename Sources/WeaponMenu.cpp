@@ -62,7 +62,7 @@ bool WeaponMenu::KeyDown( SDLKey key )
 	if( hex_board && (hex_board->Selected == hex_board->MessageInput) )
 		return false;
 	else if( key == SDLK_ESCAPE )
-		Remove();
+		RemoveAndUntarget();
 	else
 		return false;
 	return true;
@@ -85,7 +85,7 @@ bool WeaponMenu::Update( bool force )
 	Mech *mech = game->SelectedMech();
 	if( ! mech )
 	{
-		Remove();
+		RemoveAndUntarget();
 		return false;
 	}
 	else if( force || (mech != Selected) )
@@ -150,7 +150,7 @@ void WeaponMenu::UpdateWeapons( void )
 	short medium_range = 99;
 	short shortest_range = 99;
 	short min_range = 0;
-	bool show_checkboxes = (Selected->Team == game->MyTeam()) && ((game->State == BattleTech::State::WEAPON_ATTACK) || (game->State == BattleTech::State::TAG));
+	bool show_checkboxes = (Selected->Team == game->MyTeam()) && ((game->State == BattleTech::State::WEAPON_ATTACK) || (game->State == BattleTech::State::TAG)) && Selected->ReadyAndAble();
 	
 	for( std::map<uint8_t,uint8_t>::const_iterator weap = Selected->WeaponsToFire.begin(); weap != Selected->WeaponsToFire.end(); weap ++ )
 	{
@@ -354,7 +354,7 @@ void WeaponMenu::UpdateWeapons( void )
 		rect.x = Rect.w - 60;
 		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
 		
-		if( Selected->Team == game->MyTeam() )
+		if( show_checkboxes )
 		{
 			rect.x = Rect.w - 30;
 			AddElement( new WeaponMenuCheckBox( &rect, ItemFont, Selected, 0xFF, Selected->WeaponsToFire[ 0xFF ] ) );
@@ -572,7 +572,7 @@ void WeaponMenu::UpdateMelee( void )
 		pato_other += (hex_board->Path.Distance <= 1) ? -2 : 1;
 	if( target && target->Immobile() )
 		pato_other -= 4;
-	bool ecm = hex_board->Path.TeamECMs.size() > hex_board->Path.TeamECMs.count(Selected->Team);
+	bool ecm = hex_board->Path.ECMvsTeam( Selected->Team );
 	int8_t trees = hex_board->Path.PartialCover ? (hex_board->Path.Modifier - 1) : hex_board->Path.Modifier;
 	if( trees && (! ecm) && (hex_board->Path.Distance <= Selected->ActiveProbeRange()) )
 		pato_other --;
@@ -762,6 +762,19 @@ void WeaponMenu::SetMelee( uint8_t index, uint8_t count )
 }
 
 
+void WeaponMenu::RemoveAndUntarget( void )
+{
+	Remove();
+	
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+	game->TargetID = 0;
+	
+	HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
+	if( hex_board )
+		hex_board->ClearPath();
+}
+
+
 // ---------------------------------------------------------------------------
 
 
@@ -783,7 +796,7 @@ WeaponMenuCloseButton::~WeaponMenuCloseButton()
 void WeaponMenuCloseButton::Clicked( Uint8 button )
 {
 	if( button == SDL_BUTTON_LEFT )
-		Container->Remove();
+		((WeaponMenu*) Container)->RemoveAndUntarget();
 }
 
 

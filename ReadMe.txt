@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|            0.9.4 Beta (2022-03-14)            |
+|            0.9.5 Beta (2022-06-22)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -52,6 +52,7 @@ Gameplay Controls:
 * Backspace will undo your movement one step at a time.
 * Enter submits your turn (on any phase).
 * Right-click to aim during the TAG, Weapon Attack, or Physical Attack phases.
+* Left and right arrow keys adjust torso twist during Weapon Attack phase.
 * WASD moves the map, R/F zooms in/out, Q/Home resets view, and E zooms to active area.
 * I displays record sheet for the selected mech, and O for the right-click aim target.
 
@@ -69,8 +70,10 @@ Known Issues:
 * Dropping to prone move is not implemented; Mechs can only go prone by falling.
 * Cannot choose HE or ER ammo for ATM.
 * Cannot choose cluster ammo for LB-X AC.
+* Ammo should be consumed at attack declaration, not resolution. [BattleMech Manual p.31]
+* Declared attacks do not show which weapons were selected.
 * Multiple attack target selection is not implemented.
-* Called/aimed shots are not implemented.
+* Aimed shots are not implemented. [BattleMech Manual p.30]
 * Club, push, charge, and DFA physical attacks are not implemented.
 * CASE II should make an additional roll of 8+ to check any critical hits.
 * Reactive/Reflective/Hardened Armor are not implemented.
@@ -90,6 +93,7 @@ Known Issues:
 * Command Couch (backup pilot) is not implemented.
 * Turret weapons are not implemented; they only fire forward.
 * C3 networks are not implemented.
+* Only teammates should be able to indirect fire at spotted targets (when 3+ teams).
 * Not all included Mechs look correct (but you can add them to MechTex.ini).
 
 Troubleshooting:
@@ -121,11 +125,26 @@ Frequently Asked Questions (FAQ):
    Movements, attacks, and damage resolution are animated and described step by step,
    tracking damage on record sheets.  It is written in C++ and compiled to native code.
 * Will there be a mobile/tablet port?
- - Maybe someday, but no promises.  I play games on PC and use a Blackberry Classic.
+ - Maybe someday, but no promises.  I do have an Android phone now but prefer PC gaming.
    BTTT and RaptorEngine are both open source C++, so you are welcome to try porting it.
    You would probably need to ditch my SDL 1.2 bindings for SDL2, rework a few older GL
    calls that are not available in OpenGLES, and replace keyboard controls with touch.
 
+Version 0.9.5 Beta (2022-06-22):
+* Attack and defense modifiers are displayed while planning movement.
+* Declared attacks now show what they are targeting.
+* ECM ranges are now only displayed for the selected Mech or when aim passes through.
+* Fixed cover for prone Mechs in some situations by reworking line-of-sight code.
+* Fixed scroll behavior for Mech variant list.
+* Fixed draw order problems, such as jumping Mechs sometimes drawn behind others.
+* Fixed armor diagram sometimes not flashing damage when hit from side or rear arc.
+* Fixed players without TAG being able to skip the turn when a teammate could use TAG.
+* Fixed remote client desync/crash when too many events were transmitted in a batch.
+* Fixed queued events continuing to play after ending the game early.
+* Fixed AI-controlled Mechs standing up without spending the necessary MP.
+* AI now avoids running/jumping when its Mech has damaged Gyro/Hip/Actuators.
+* Ludicrous Speed now has better looking animations.
+* Added and improved some Mech texture definitions.
 Version 0.9.4 Beta (2022-03-14):
 * Fixed to-hit previews in Movement phase not adding walk/run/jump attack modifier.
 * Fixed non-explosive ammo (Gauss) still being usable after critical hit.

@@ -45,5 +45,6 @@ public:
 	void ClearPath( bool remove_menu = true );
 	void RemoveWeaponMenu( void );
 	void RemoveSetupMenus( void ) const;
+	void UpdateAim( void );
 	void UpdateWeaponsInRange( Mech *selected, const Mech *target );
 };

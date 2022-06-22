@@ -12,6 +12,7 @@
 #include "Event.h"
 #include "Num.h"
 #include "Math2D.h"
+#include "HexBoard.h"
 #include <cmath>
 #include <algorithm>
 
@@ -759,7 +760,7 @@ void MechLocation::Damage( uint16_t damage, uint8_t arc, uint8_t crit )
 				{
 					Destroyed = true;
 					e.Sound = "m_alarm.wav";
-					e.Duration = 1.f;
+					e.Duration = 1.2f;
 					e.Text = Num::ToString((int)structure_damage) + std::string(" damage to structure destroys ") + Name + std::string("!");
 				}
 				e.ShowHealth( Loc, STRUCTURE );
@@ -925,7 +926,7 @@ void MechLocation::CriticalHitCheck( uint8_t crit )
 				Destroyed = true;
 				e.Sound = "m_alarm.wav";
 			}
-			e.Duration = 1.f;
+			e.Duration = 1.2f;
 			e.Text += std::string(", destroying the ") + Name + std::string("!");
 			e.ShowHealth( Loc, STRUCTURE );
 		}
@@ -1121,6 +1122,7 @@ Mech::Mech( uint32_t id ) : GameObject( id, BattleTech::Object::MECH )
 	MoveSpeed = 0;
 	StandAttempts = 0;
 	TookTurn = false;
+	DeclaredTarget = 0;
 }
 
 
@@ -1423,6 +1425,8 @@ void Mech::AddToUpdatePacketFromServer( Packet *packet, int8_t precision )
 		packet->AddUChar( Heat );
 		packet->AddUChar( HeatDissipation );
 		packet->AddUChar( HeatMove | (HeatFire << 4) );
+		
+		packet->AddUInt( DeclaredTarget );
 	}
 	
 	packet->AddUChar( X );
@@ -1437,6 +1441,8 @@ void Mech::AddToUpdatePacketFromServer( Packet *packet, int8_t precision )
 		facing_and_flags |= 0x20;
 	if( ActiveStealth )
 		facing_and_flags |= 0x10;
+	if( TookTurn )
+		facing_and_flags |= 0x08;
 	packet->AddUChar( facing_and_flags );
 	
 	uint8_t modifiers = Defense | (Attack << 4);
@@ -1507,16 +1513,21 @@ void Mech::ReadFromUpdatePacketFromServer( Packet *packet, int8_t precision )
 		HeatMove =  heat_effects & 0x0F;
 		HeatFire = (heat_effects & 0xF0) >> 4;
 		
+		uint32_t declared_target = packet->NextUInt();
+		
 		if( Destroyed(true) )
 		{
 			Locations[ CENTER_TORSO ].Destroyed = true;
 			Locations[ CENTER_TORSO ].DestroyedClock.Advance( -10. );
 		}
+		else
+			DeclaredTarget = declared_target;
 	}
 	
 	uint8_t x = packet->NextUChar();
 	uint8_t y = packet->NextUChar();
 	uint8_t facing_and_flags = packet->NextUChar();
+	TookTurn = facing_and_flags & 0x08;
 	
 	if( precision >= 0 )
 	{
@@ -1804,14 +1815,14 @@ uint8_t Mech::MASCDist( uint8_t speed ) const
 	if( legs_destroyed >= (leg_count / 2) )
 		return 0;
 	
-	if( Supercharger && ! Supercharger->Damaged && (speed != BattleTech::Move::MASC) )
+	if( Supercharger && ! Supercharger->Damaged && (speed != BattleTech::Speed::MASC) )
 	{
-		if( MASC && ! MASC->Damaged && (speed != BattleTech::Move::SUPERCHARGE) )
+		if( MASC && ! MASC->Damaged && (speed != BattleTech::Speed::SUPERCHARGE) )
 			return ceilf( WalkDist() * 2.5f );
 		return WalkDist() * 2;
 	}
 	
-	if( MASC && ! MASC->Damaged && (speed != BattleTech::Move::SUPERCHARGE) )
+	if( MASC && ! MASC->Damaged && (speed != BattleTech::Speed::SUPERCHARGE) )
 		return WalkDist() * 2;
 	
 	return 0;
@@ -1837,13 +1848,13 @@ uint8_t Mech::JumpDist( void ) const
 
 std::string Mech::MPString( uint8_t speed ) const
 {
-	if( speed == BattleTech::Move::WALK )
+	if( speed == BattleTech::Speed::WALK )
 		return Num::ToString((int)WalkDist());
-	if( speed == BattleTech::Move::RUN )
+	if( speed == BattleTech::Speed::RUN )
 		return Num::ToString(std::max<int>( RunDist(), WalkDist() ));
-	if( (speed == BattleTech::Move::MASC) || (speed == BattleTech::Move::SUPERCHARGE) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
+	if( (speed == BattleTech::Speed::MASC) || (speed == BattleTech::Speed::SUPERCHARGE) || (speed == BattleTech::Speed::MASC_SUPERCHARGE) )
 		return Num::ToString((int)MASCDist(speed));
-	if( speed == BattleTech::Move::JUMP )
+	if( speed == BattleTech::Speed::JUMP )
 		return Num::ToString((int)JumpDist());
 	
 	std::string mp = Num::ToString((int)WalkDist());
@@ -2502,6 +2513,8 @@ bool Mech::ReadyAndAbleNoCache( int phase ) const
 
 int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const MechEquipment *eq ) const
 {
+	if( Unconscious || Shutdown || Destroyed() )
+		return 99;
 	if( ! target )
 		return 99;
 	
@@ -2544,7 +2557,7 @@ int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const M
 	if( eq )
 		difficulty += eq->ShotModifier( path->Distance, target->ActiveStealth );
 	
-	bool ecm = path->TeamECMs.size() > path->TeamECMs.count(Team);
+	bool ecm = path->ECMvsTeam( Team );
 	
 	if( path->LineOfSight )
 	{
@@ -2571,6 +2584,9 @@ int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const M
 
 bool Mech::SpottingWithoutTAG( void ) const
 {
+	if( ClientSide() && (Raptor::Game->State < BattleTech::State::WEAPON_ATTACK) )
+		return false;
+	
 	std::map<uint8_t,uint8_t>::const_iterator spotting = WeaponsToFire.find( 0xFF );
 	return (spotting != WeaponsToFire.end()) && spotting->second && ! FiredTAG();
 }
@@ -2944,6 +2960,7 @@ void Mech::BeginPhase( int phase )
 	MoveSpeed = 0;
 	StandAttempts = 0;
 	TookTurn = false;
+	DeclaredTarget = 0;
 	
 	if( Destroyed() )
 		return;
@@ -3127,6 +3144,10 @@ void Mech::BeginPhase( int phase )
 				e.Duration = 1.7f;
 				if( shutdown_check <= 12 )
 					e.Text = std::string("Shutdown sequence initiated: need ") + Num::ToString((int)shutdown_check) + std::string(" to override.");
+				else if( Heat >= 30 )
+					e.Text = "Shutdown sequence initiated: cannot override at 30+ heat.";
+				else if( Unconscious )
+					e.Text = "Shutdown sequence initiated: unconscious pilot cannot override.";
 				else
 					e.Text = "Shutdown sequence initiated...";
 				server->Events.push( e );
@@ -3305,7 +3326,7 @@ bool Mech::Step( uint8_t move )
 		return true;
 	}
 	
-	if( (move == BattleTech::Move::REVERSE) && (MoveSpeed > BattleTech::Move::WALK) )
+	if( (move == BattleTech::Move::REVERSE) && (MoveSpeed > BattleTech::Speed::WALK) )
 		return false;
 	
 	HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
@@ -3346,7 +3367,7 @@ bool Mech::Step( uint8_t move )
 	Steps.back().Jump = 0;
 	Steps.back().Move = move;
 	
-	if( (state == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Move::INVALID) )
+	if( (state == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Speed::INVALID) )
 	{
 		Steps.pop_back();
 		return false;
@@ -3400,7 +3421,7 @@ bool Mech::Turn( int8_t rotate )
 		// After successfully standing, select any facing at no cost.
 		if( StandAttempts && (! Prone) && ! prev_step_cost )
 			Steps.back().Cost = 0;
-		else if( (Raptor::Game->State == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Move::INVALID) )
+		else if( (Raptor::Game->State == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Speed::INVALID) )
 		{
 			Steps.pop_back();
 			return false;
@@ -3411,6 +3432,7 @@ bool Mech::Turn( int8_t rotate )
 }
 
 
+/*
 bool Mech::JumpTo( uint8_t next_x, uint8_t next_y, uint8_t next_facing )
 {
 	if( Unconscious || Shutdown || Prone )
@@ -3438,7 +3460,7 @@ bool Mech::JumpTo( uint8_t next_x, uint8_t next_y, uint8_t next_facing )
 	Steps.back().Move = BattleTech::Move::JUMP;
 	
 	int state = ClientSide() ? Raptor::Game->State : Raptor::Server->State;
-	if( (state == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Move::INVALID) )
+	if( (state == BattleTech::State::MOVEMENT) && (SpeedNeeded() == BattleTech::Speed::INVALID) )
 	{
 		Steps.pop_back();
 		return false;
@@ -3446,6 +3468,7 @@ bool Mech::JumpTo( uint8_t next_x, uint8_t next_y, uint8_t next_facing )
 	
 	return true;
 }
+*/
 
 
 int Mech::StepCost( void ) const
@@ -3478,52 +3501,144 @@ uint8_t Mech::SpeedNeeded( bool final_position ) const
 		// Allow walking through team-mates but not ending movement on them.
 		size_t mechs_in_hex = final_position ? map->MechsAt( x, y ) : map->TeamsAt( x, y );
 		if( mechs_in_hex > 1 )
-			return BattleTech::Move::INVALID;
+			return BattleTech::Speed::INVALID;
 	}
 	
 	int cost = StepCost();
 	
 	if( ! cost )
-		return BattleTech::Move::STOP;
+		return BattleTech::Speed::STOP;
 	if( cost <= WalkDist() )
-		return BattleTech::Move::WALK;
+		return BattleTech::Speed::WALK;
 	
 	// If we declared walking before standing, that's our move limit.
-	if( MoveSpeed == BattleTech::Move::WALK )
-		return BattleTech::Move::INVALID;
+	if( MoveSpeed == BattleTech::Speed::WALK )
+		return BattleTech::Speed::INVALID;
 	
 	bool reversed = Reversed();
 	
 	if( (cost <= RunDist()) && ! reversed )
-		return BattleTech::Move::RUN;
+		return BattleTech::Speed::RUN;
 	
 	// Minimum Movement rule allows one stand attempt with a single movement point.
 	if( (StandAttempts == 1) && (cost == 2) && WalkDist() )
-		return BattleTech::Move::RUN;
+		return BattleTech::Speed::RUN;
 	
 	// Minimum Movement rule allows entering the hex ahead using a single movement point.
 	if( (Steps.size() == 1) && (Steps.back().Step == 1) && WalkDist() && ! StandAttempts )
-		return BattleTech::Move::RUN;
+		return BattleTech::Speed::RUN;
 	
 	// If we declared running before standing, that's our move limit.
-	if( MoveSpeed == BattleTech::Move::RUN )
-		return BattleTech::Move::INVALID;
+	if( MoveSpeed == BattleTech::Speed::RUN )
+		return BattleTech::Speed::INVALID;
 	
-	if( (cost <= MASCDist( BattleTech::Move::MASC )) && ! reversed )
-		return BattleTech::Move::MASC;
-	if( (cost <= MASCDist( BattleTech::Move::SUPERCHARGE )) && ! reversed )
-		return BattleTech::Move::SUPERCHARGE;
-	if( (cost <= MASCDist( BattleTech::Move::MASC_SUPERCHARGE )) && ! reversed )
-		return BattleTech::Move::MASC_SUPERCHARGE;
+	if( (cost <= MASCDist( BattleTech::Speed::MASC )) && ! reversed )
+		return BattleTech::Speed::MASC;
+	if( (cost <= MASCDist( BattleTech::Speed::SUPERCHARGE )) && ! reversed )
+		return BattleTech::Speed::SUPERCHARGE;
+	if( (cost <= MASCDist( BattleTech::Speed::MASC_SUPERCHARGE )) && ! reversed )
+		return BattleTech::Speed::MASC_SUPERCHARGE;
 	
-	if( map && (! StandAttempts) && ((MoveSpeed == BattleTech::Move::JUMP) || ! MoveSpeed) && JumpDist() )
+	if( map && (! StandAttempts) && ((MoveSpeed == BattleTech::Speed::JUMP) || ! MoveSpeed) && JumpDist() )
 	{
 		int jump_cost = final_position ? map->JumpCost( X, Y, Steps.back().X, Steps.back().Y ) : map->HexDist( X, Y, Steps.back().X, Steps.back().Y );
 		if( jump_cost <= (int) JumpDist() )
-			return BattleTech::Move::JUMP;
+			return BattleTech::Speed::JUMP;
 	}
 	
-	return BattleTech::Move::INVALID;
+	return BattleTech::Speed::INVALID;
+}
+
+
+uint8_t Mech::EnteredHexes( uint8_t speed ) const
+{
+	if( speed == BattleTech::Speed::INVALID )
+		speed = SpeedNeeded();
+	
+	if( speed == BattleTech::Speed::JUMP )
+	{
+		uint8_t x, y;
+		GetPosition( &x, &y );
+		const HexMap *map = ((BattleTechGame*)( Raptor::Game ))->Map();
+		return map->HexDist( X, Y, x, y );
+	}
+	
+	uint8_t entered = 0;
+	int8_t prev_step = 0;
+	
+	for( std::vector<MechStep>::const_iterator step = Steps.begin(); step != Steps.end(); step ++ )
+	{
+		if( ! step->Step )
+			continue;
+		if( step->Step == prev_step * -1 )
+			entered = 0;
+		entered ++;
+		prev_step = step->Step;
+	}
+	
+	return entered;
+}
+
+
+uint8_t Mech::DefenseBonus( uint8_t speed, uint8_t entered ) const
+{
+	if( speed == BattleTech::Speed::INVALID )
+		speed = SpeedNeeded();
+	if( entered == 0xFF )
+		entered = EnteredHexes( speed );
+	
+	uint8_t bonus = 0;
+	if( entered >= 25 )
+		bonus = 6;
+	else if( entered >= 18 )
+		bonus = 5;
+	else if( entered >= 10 )
+		bonus = 4;
+	else if( entered >= 7 )
+		bonus = 3;
+	else if( entered >= 5 )
+		bonus = 2;
+	else if( entered >= 3 )
+		bonus = 1;
+	
+	if( speed == BattleTech::Speed::JUMP )
+		bonus ++;
+	
+	return bonus;
+}
+
+
+uint8_t Mech::AttackPenalty( uint8_t speed ) const
+{
+	if( speed == BattleTech::Speed::INVALID )
+		speed = SpeedNeeded();
+	
+	if( speed == BattleTech::Speed::JUMP )
+		return 3;
+	else if( speed >= BattleTech::Speed::RUN )
+		return 2;
+	else if( speed == BattleTech::Speed::WALK )
+		return 1;
+	return 0;
+}
+
+
+uint8_t Mech::MovementHeat( uint8_t speed, uint8_t entered ) const
+{
+	if( speed == BattleTech::Speed::INVALID )
+		speed = SpeedNeeded();
+	
+	if( speed == BattleTech::Speed::JUMP )
+	{
+		if( entered == 0xFF )
+			entered = EnteredHexes( speed );
+		return std::max<uint8_t>( 3, entered );
+	}
+	else if( speed >= BattleTech::Speed::RUN )
+		return 2;
+	else if( speed == BattleTech::Speed::WALK )
+		return 1;
+	return 0;
 }
 
 
@@ -3549,10 +3664,6 @@ void Mech::Draw( void )
 	
 	uint8_t x, y, facing;
 	GetPosition( &x, &y, &facing );
-	
-	bool destroyed = Destroyed();
-	if( destroyed && (map->MechAt_const(x,y) != this) )
-		return;
 	
 	Pos3D pos = map->Center( x, y );
 	Vec3D fwd = map->Direction( facing );
@@ -3596,6 +3707,7 @@ void Mech::Draw( void )
 	if( enemy )
 		r = 1.f;
 	
+	bool destroyed = Destroyed();
 	if( destroyed )
 	{
 		float dim = std::max<float>( 0.4f, 1. - Locations[ BattleTech::Loc::CENTER_TORSO ].DestroyedClock.ElapsedSeconds() );
@@ -3715,7 +3827,7 @@ void Mech::Draw( void )
 				double height = sin( move_progress * M_PI );
 				up.ScaleBy(    1. + height * 0.1 );
 				right.ScaleBy( 1. + height * 0.1 );
-				h = powf( h, 1.f - (float) height * 0.9f );
+				h = powf( h, 1.f - (float) height * 0.7f );
 			}
 			else if( (move_progress < 1.) && ((MoveEffect == BattleTech::Effect::LEFT_PUNCH) || (MoveEffect == BattleTech::Effect::RIGHT_PUNCH)) && upper )
 			{
@@ -3832,23 +3944,49 @@ void Mech::Draw( void )
 		}
 	}
 	
-	if( ECM && ! ECM->Damaged && ! Shutdown && ! Destroyed() && Raptor::Game->Cfg.SettingAsBool("show_ecm",true) )
+	if( ECM && ! ECM->Damaged && ! Shutdown && ! Destroyed() && game->Cfg.SettingAsBool("show_ecm",true) )
 	{
-		if( friendly )
-			glColor4f( 0.5f, 1.0f, 0.0f, 0.5f );
+		bool relevant_ecm = (game->Cfg.SettingAsString("show_ecm") == "all");
+		bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+		const Mech *selected = game->SelectedMech();
+		HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
+		
+		if( relevant_ecm || playing_events )
+			;
+		else if( selected && hex_board && hex_board->Path.size() && (((game->State == BattleTech::State::WEAPON_ATTACK) && ! selected->TookTurn) || (game->State == BattleTech::State::MOVEMENT)) )
+		{
+			// Show ECM ranges that cover the current shot path.
+			for( std::map<uint32_t,uint8_t>::const_iterator ecm = hex_board->Path.ECM.begin(); ecm != hex_board->Path.ECM.end(); ecm ++ )
+			{
+				if( (ecm->first == ID) && (ecm->second != selected->Team) )
+				{
+					relevant_ecm = true;
+					break;
+				}
+			}
+		}
 		else
-			glColor4f( 1.0f, 1.0f, 0.0f, 0.4f );
-		glLineWidth( 2.f );
-		glBegin( GL_LINE_STRIP );
-			glVertex2d( pos.X      , pos.Y - 6.57 );
-			glVertex2d( pos.X + 5.7, pos.Y - 3.3  );
-			glVertex2d( pos.X + 5.7, pos.Y + 3.3  );
-			glVertex2d( pos.X      , pos.Y + 6.57 );
-			glVertex2d( pos.X - 5.7, pos.Y + 3.3  );
-			glVertex2d( pos.X - 5.7, pos.Y - 3.3  );
-			glVertex2d( pos.X      , pos.Y - 6.57 );
-		glEnd();
-		glColor4f( 1.f, 1.f, 1.f, 1.f );
+			// Show ECM range for selected Mech.
+			relevant_ecm = (selected == this);
+		
+		if( relevant_ecm )
+		{
+			if( friendly )
+				glColor4f( 0.5f, 1.0f, 0.0f, 0.5f );
+			else
+				glColor4f( 1.0f, 1.0f, 0.0f, 0.4f );
+			glLineWidth( 2.f );
+			glBegin( GL_LINE_STRIP );
+				glVertex2d( pos.X      , pos.Y - 6.57 );
+				glVertex2d( pos.X + 5.7, pos.Y - 3.3  );
+				glVertex2d( pos.X + 5.7, pos.Y + 3.3  );
+				glVertex2d( pos.X      , pos.Y + 6.57 );
+				glVertex2d( pos.X - 5.7, pos.Y + 3.3  );
+				glVertex2d( pos.X - 5.7, pos.Y - 3.3  );
+				glVertex2d( pos.X      , pos.Y - 6.57 );
+			glEnd();
+			glColor4f( 1.f, 1.f, 1.f, 1.f );
+		}
 	}
 }
 
@@ -3889,7 +4027,7 @@ void Mech::DrawHealth( double x1, double y1, double x2, double y2 ) const
 					Raptor::Game->Gfx.DrawRect2D( x1, y1, x2, y2, texture, 1.f,portion,floorf(portion),1.f );
 				}
 			}
-			else if( (Locations[ i ].HitWhere == FRONT) && recent_hit && blink_hit )
+			else if( ((Locations[ i ].HitWhere != REAR) || ! Locations[ i ].IsTorso) && (Locations[ i ].HitWhere != STRUCTURE) && recent_hit && blink_hit )
 			{
 				GLuint texture = Raptor::Game->Res.GetTexture( HealthIcons[ i + BattleTech::Loc::COUNT ] );
 				Raptor::Game->Gfx.DrawRect2D( x1, y1, x2, y2, texture, 0.f,0.f,0.f,1.f );

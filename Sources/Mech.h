@@ -151,6 +151,7 @@ public:
 	std::map<uint8_t,uint8_t> WeaponsToFire;
 	std::set<MechMelee> SelectedMelee;
 	bool TookTurn;
+	uint32_t DeclaredTarget;
 	
 	uint8_t X, Y, Facing;
 	int8_t TorsoTwist, ProneFire, TurnedArm;
@@ -202,7 +203,7 @@ public:
 	
 	uint8_t WalkDist( void ) const;
 	uint8_t RunDist( void ) const;
-	uint8_t MASCDist( uint8_t speed = BattleTech::Move::MASC_SUPERCHARGE ) const;
+	uint8_t MASCDist( uint8_t speed = BattleTech::Speed::MASC_SUPERCHARGE ) const;
 	uint8_t JumpDist( void ) const;
 	std::string MPString( uint8_t speed = 0 ) const;
 	
@@ -251,10 +252,14 @@ public:
 	
 	bool Step( uint8_t move );
 	bool Turn( int8_t rotate );
-	bool JumpTo( uint8_t next_x, uint8_t next_y, uint8_t next_facing );
+	//bool JumpTo( uint8_t next_x, uint8_t next_y, uint8_t next_facing );
 	int StepCost( void ) const;
 	bool Reversed( void ) const;
 	uint8_t SpeedNeeded( bool final_position = false ) const;
+	uint8_t EnteredHexes( uint8_t speed = BattleTech::Speed::INVALID ) const;
+	uint8_t DefenseBonus( uint8_t speed = BattleTech::Speed::INVALID, uint8_t entered = 0xFF ) const;
+	uint8_t AttackPenalty( uint8_t speed = BattleTech::Speed::INVALID ) const;
+	uint8_t MovementHeat( uint8_t speed = BattleTech::Speed::INVALID, uint8_t entered = 0xFF ) const;
 	
 	void Animate( double duration, uint8_t effect = BattleTech::Effect::NONE );
 	

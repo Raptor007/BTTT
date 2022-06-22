@@ -64,6 +64,7 @@ public:
 	uint8_t TeamsAlive( void ) const;
 	uint8_t MyTeam( void );
 	std::string TeamName( uint8_t team_num ) const;
+	bool BotControlsTeam( uint8_t team_num ) const;
 	Mech *GetMech( uint32_t mech_id );
 	Mech *SelectedMech( void );
 	Mech *TargetMech( void );

@@ -353,6 +353,8 @@ std::map< short, HMWeapon > HeavyMetal::Weapons( const char *filename )
 					w.Effect = BattleTech::Effect::MEDIUM_LASER;
 				}
 			}
+			if( strstr( name_str, "Heavy" ) )
+				w.HitSound = "w_hit_l.wav";
 		}
 		
 		weapons[ w.ID ] = w;

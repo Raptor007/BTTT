@@ -44,6 +44,8 @@ public:
 	void SetCount( uint8_t index, uint8_t count );
 	void SetWeapon( uint8_t index, uint8_t count );
 	void SetMelee( uint8_t index, uint8_t count );
+	
+	void RemoveAndUntarget( void );
 };
 
 

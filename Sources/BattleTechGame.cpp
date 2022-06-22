@@ -20,6 +20,9 @@
 #include "Event.h"
 #include "Num.h"
 #include "Math2D.h"
+#ifndef DT_DIR
+#include <sys/stat.h>
+#endif
 
 
 BattleTechGame::BattleTechGame( std::string version ) : RaptorGame( "BTTT", version )
@@ -220,7 +223,12 @@ size_t BattleTechGame::LoadVariants( std::string dir )
 				continue;
 			if( dir_entry_p->d_name[ 0 ] == '.' )
 				continue;
+#ifndef DT_DIR
+			struct stat st;
+			if( (fstat( dir_entry_p->d_ino, &st ) == 0) && S_ISDIR( st.st_mode ) )
+#else
 			if( dir_entry_p->d_type == DT_DIR )
+#endif
 			{
 				count += LoadVariants( dir + std::string("/") + std::string(dir_entry_p->d_name) );
 				continue;
@@ -389,23 +397,28 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 			}
 		}
 		
-		if( (e->Effect == BattleTech::Effect::STEP)
-		||  (e->Effect == BattleTech::Effect::TURN)
-		||  (e->Effect == BattleTech::Effect::JUMP)
-		||  (e->Effect == BattleTech::Effect::FALL)
-		||  (e->Effect == BattleTech::Effect::STAND)
-		||  (e->Effect == BattleTech::Effect::TORSO_TWIST) )
+		if( (e->Effect >= BattleTech::Effect::FIRST_MOVEMENT)
+		&&  (e->Effect <= BattleTech::Effect::LAST_MOVEMENT) )
 		{
 			if( (e->Effect == BattleTech::Effect::STEP) || (e->Effect == BattleTech::Effect::TURN) || (e->Effect == BattleTech::Effect::FALL) )
-				duration = 0.3;
-			else if( e->Effect == BattleTech::Effect::TORSO_TWIST )
+			{
+				double event_speed = std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.) );
+				duration = std::min<double>( 0.3, 0.5 / event_speed );
+			}
+			else if( (State == BattleTech::State::SETUP) && ((e->Effect == BattleTech::Effect::JUMP) || (e->Effect == BattleTech::Effect::STAND) || (e->Effect == BattleTech::Effect::FALL)) )
 				duration = 0.2;
-			else if( (e->Effect == BattleTech::Effect::JUMP) && (State == BattleTech::State::SETUP) )
+			else if( e->Effect == BattleTech::Effect::TORSO_TWIST )
 				duration = 0.2;
 			mech->Animate( duration, e->Effect );
 			mech->X = e->X;
 			mech->Y = e->Y;
 			e->ReadFacing( mech );
+			if( (mech->ID == SelectedID) || (mech->ID == TargetID) )
+			{
+				HexBoard *hex_board = (HexBoard*) Layers.Find("HexBoard");
+				if( hex_board )
+					hex_board->UpdateAim();
+			}
 			if( State == BattleTech::State::SETUP )
 			{
 				mech->ArmsFlipped = false;
@@ -708,6 +721,7 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				spacing = 0.03;
 				size *= 0.75;
 			}
+			speed *= std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.) );
 			vec.ScaleTo( speed );
 			for( uint8_t i = 0; i < count; i ++ )
 			{
@@ -722,6 +736,47 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 		&&       (e->Effect <= BattleTech::Effect::LAST_MELEE) )
 		{
 			mech->Animate( 0.5, e->Effect );
+		}
+		else if( e->Effect == BattleTech::Effect::DECLARE_ATTACK )
+		{
+			HexMap *map = Map();
+			const Mech *target = map->MechAt_const( e->X, e->Y );
+			mech->DeclaredTarget = (target && (target != mech) && e->Misc) ? target->ID : 0;
+			if( mech->DeclaredTarget )
+			{
+				Pos3D pos1 = map->Center( mech->X, mech->Y );
+				Pos3D pos2 = map->Center( e->X, e->Y );
+				Vec3D vec = pos2 - pos1;
+				Pos3D center = pos1 + vec/2.;
+				double dist = vec.Length();
+				vec.ScaleTo( 1. );
+				center.MoveAlong( &vec, -0.25 );
+				double event_speed = std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.) );
+				double duration = 0.6 / event_speed;
+				Vec3D motion = vec * 0.5 / duration;
+				double angle = Math2D::Angle( vec.X, vec.Y * -1. );
+				Clock clock;
+				Data.Effects.push_back( Effect( Res.GetAnimation("line.png"), std::max<double>( 0.8, dist - 0.5 ), 0.03, NULL, 0, &center, &motion, 0., 1., duration ) );
+				Data.Effects.back().Rotation = Num::RadToDeg(angle);
+				Data.Effects.back().Lifetime.Sync( &clock );
+				Data.Effects.back().Red = Data.Effects.back().Green = Data.Effects.back().Blue = 0.4f;
+				Data.Effects.back().Alpha = 0.9f;
+				for( int i = 0; i < 5; i ++ )
+				{
+					angle += M_PI/3.;
+					vec.Rotate( -60. );
+					motion.Rotate( -60. );
+					for( uint8_t i = 0; i < 3; i ++ )
+					{
+						Data.Effects.push_back( Effect( Res.GetAnimation("line.png"), 0.25, 0.03, NULL, 0, &pos2, &motion, 0., 1., duration ) );
+						Data.Effects.back().Rotation = Num::RadToDeg(angle);
+						Data.Effects.back().MoveAlong( &vec, -0.625 );
+						Data.Effects.back().Lifetime.Sync( &clock );
+						Data.Effects.back().Red = Data.Effects.back().Green = Data.Effects.back().Blue = 0.4f;
+						Data.Effects.back().Alpha = 0.9f;
+					}
+				}
+			}
 		}
 		else if( e->Effect == BattleTech::Effect::BLINK )
 		{
@@ -1006,7 +1061,7 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 		}
 		
 		uint8_t my_team = MyTeam();
-		if( TeamTurn == my_team )
+		if( (TeamTurn == my_team) && ! BotControlsTeam(TeamTurn) )
 		{
 			Event e;
 			e.Sound = "i_ready.wav";
@@ -1084,6 +1139,13 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 			// If we didn't change the selection, restore the previous.
 			if( ! SelectedID )
 				SelectedID = prev_selected;
+			
+			// Clear aim if the selected Mech was changed.
+			if( SelectedID != prev_selected )
+				TargetID = 0;
+			HexBoard *hex_board = (HexBoard*) Layers.Find("HexBoard");
+			if( hex_board )
+				hex_board->UpdateAim();
 		}
 	}
 	else
@@ -1124,12 +1186,22 @@ void BattleTechGame::ChangeState( int state )
 			Layers.Add( new HexBoard() );
 		}
 	}
+	else if( (state >= BattleTech::State::MOVEMENT) && (state <= BattleTech::State::PHYSICAL_ATTACK) )
+	{
+		HexBoard *hex_board = (HexBoard*) Layers.Find("HexBoard");
+		if( hex_board )
+			hex_board->UpdateAim();
+	}
 	else if( (State > BattleTech::State::SETUP) && (state == BattleTech::State::SETUP) )
 	{
 		// Back to Setup.
 		Layers.RemoveAll();
+		TargetID = 0;
 		Layers.Add( new HexBoard() );
 		Layers.Add( new SpawnMenu() );
+		while( Events.size() )
+			Events.pop();
+		EventClock.Reset( 0. );
 	}
 	
 	for( std::map<uint32_t,GameObject*>::iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
@@ -1248,6 +1320,30 @@ uint8_t BattleTechGame::MyTeam( void )
 std::string BattleTechGame::TeamName( uint8_t team_num ) const
 {
 	return Data.PropertyAsString( std::string("team") + Num::ToString((int)team_num), (std::string("Team ") + Num::ToString((int)team_num)).c_str() );
+}
+
+
+bool BattleTechGame::BotControlsTeam( uint8_t team_num ) const
+{
+	if( ! team_num )
+		return false;
+	
+	std::vector<int> ai_teams = Data.PropertyAsInts("ai_team");
+	if( std::find( ai_teams.begin(), ai_teams.end(), team_num ) != ai_teams.end() )
+		return true;
+	
+	if( Data.PropertyAsString("ai_team") == "auto" )
+	{
+		for( std::map<uint16_t,Player*>::const_iterator player = Data.Players.begin(); player != Data.Players.end(); player ++ )
+		{
+			uint8_t player_team = player->second->PropertyAsInt("team");
+			if( player_team == team_num )
+				return false;
+		}
+		return true;
+	}
+	
+	return false;
 }
 
 

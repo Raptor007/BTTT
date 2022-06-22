@@ -99,6 +99,50 @@ bool BattleTechServer::HandleCommand( std::string cmd, std::vector<std::string> 
 						Console->Print( std::string("|- ") + Num::ToString(i) + std::string(": ") + eq->Name );
 					}
 				}
+				else if( params->at(1) == "damage" )
+				{
+					MechLocation *location = &(mech->Locations[ BattleTech::Loc::CENTER_TORSO ]);
+					uint16_t damage = 1;
+					uint8_t arc = BattleTech::Arc::FRONT;
+					if( params->size() >= 3 )
+					{
+						location = NULL;
+						for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
+						{
+							if( strcasecmp( params->at(2).c_str(), mech->Locations[ i ].ShortName.c_str() ) == 0 )
+							{
+								location = &(mech->Locations[ i ]);
+								break;
+							}
+						}
+					}
+					if( params->size() >= 4 )
+						damage = Str::AsInt( params->at(3) );
+					if( params->size() >= 5 )
+					{
+						if( (params->at(4) == "structure") || (params->at(4) == "s") )
+							arc = BattleTech::Arc::STRUCTURE;
+						else if( (params->at(4) == "rear") || (params->at(4) == "r") )
+							arc = BattleTech::Arc::REAR;
+						else if( (params->at(4) == "left") || (params->at(4) == "ls") )
+							arc = BattleTech::Arc::LEFT_SIDE;
+						else if( (params->at(4) == "right") || (params->at(4) == "rs") )
+							arc = BattleTech::Arc::RIGHT_SIDE;
+					}
+					if( location )
+					{
+						Event e( mech );
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::RED;
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced damage to ") + mech->FullName() + std::string(".");
+						Events.push( e );
+						location->Damage( damage, arc );
+						SendEvents();
+					}
+					else
+						Console->Print( std::string("Could not find location ") + params->at(2) + std::string(" on ") + mech->FullName() + std::string(".") );
+				}
 				else if( params->at(1) == "destroy" )
 				{
 					MechLocation *location = &(mech->Locations[ BattleTech::Loc::CENTER_TORSO ]);
@@ -288,6 +332,18 @@ bool BattleTechServer::HandleCommand( std::string cmd, std::vector<std::string> 
 				}
 			}
 		}
+	}
+	else if( cmd == "sync" )
+	{
+		Packet update = Packet( Raptor::Packet::UPDATE );
+		update.AddChar( 127 );
+		update.AddUInt( Data.GameObjects.size() );
+		for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
+		{
+			update.AddUInt( obj_iter->second->ID );
+			obj_iter->second->AddToUpdatePacketFromServer( &update, 127 );
+		}
+		Net.SendAll( &update );
 	}
 	else
 		return RaptorServer::HandleCommand( cmd, params );
@@ -512,11 +568,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		{
 			uint8_t move = packet->NextUChar();
 			
-			if( (move == BattleTech::Move::WALK)
-			||  (move == BattleTech::Move::RUN)
-			||  (move == BattleTech::Move::MASC)
-			||  (move == BattleTech::Move::SUPERCHARGE)
-			||  (move == BattleTech::Move::MASC_SUPERCHARGE)
+			if( (move == BattleTech::Move::FORWARD)
 			||  (move == BattleTech::Move::REVERSE) )
 			{
 				std::map<uint8_t,const Hex*> adjacent = map->Adjacent_const( mech->X, mech->Y );
@@ -534,7 +586,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					reversing = step_reverse;
 				}
 				
-				if( speed != BattleTech::Move::JUMP )
+				if( speed != BattleTech::Speed::JUMP )
 				{
 					Event e( mech );
 					e.Effect = BattleTech::Effect::STEP;
@@ -555,7 +607,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				mech->Facing += (move == BattleTech::Move::LEFT) ? 5 : 1;
 				mech->Facing %= 6;
 				
-				if( speed != BattleTech::Move::JUMP )
+				if( speed != BattleTech::Speed::JUMP )
 				{
 					Event e( mech );
 					e.Effect = BattleTech::Effect::TURN;
@@ -572,7 +624,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			}
 		}
 		
-		if( speed == BattleTech::Move::JUMP )
+		if( speed == BattleTech::Speed::JUMP )
 		{
 			Event e( mech );
 			e.Effect = BattleTech::Effect::JUMP;
@@ -609,7 +661,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		else if( entered >= 3 )
 			mech->Defense = 1;
 		
-		if( speed == BattleTech::Move::JUMP )
+		if( speed == BattleTech::Speed::JUMP )
 			mech->Defense ++;
 		
 		if( State != BattleTech::State::SETUP )
@@ -617,19 +669,19 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			if( mech->ReadyAndAble() )
 			{
 				Event e( mech );
-				e.Sound = (speed == BattleTech::Move::JUMP) ? "m_land.wav" : "m_stop.wav";
+				e.Sound = (speed == BattleTech::Speed::JUMP) ? "m_land.wav" : "m_stop.wav";
 				e.Duration = 0.5f;
 				e.Text = mech->ShortName() + std::string(" entered ") + Num::ToString((int)entered) + std::string(" hexes for defense +")
 					+ Num::ToString((int)(mech->Defense)) + std::string(" and attack +") + Num::ToString((int)(mech->Attack)) + std::string(".");
 				Events.push( e );
 				
-				if( (speed == BattleTech::Move::RUN)
-				||  (speed == BattleTech::Move::MASC)
-				||  (speed == BattleTech::Move::SUPERCHARGE)
-				||  (speed == BattleTech::Move::MASC_SUPERCHARGE)
-				||  (speed == BattleTech::Move::JUMP) )
+				if( (speed == BattleTech::Speed::RUN)
+				||  (speed == BattleTech::Speed::MASC)
+				||  (speed == BattleTech::Speed::SUPERCHARGE)
+				||  (speed == BattleTech::Speed::MASC_SUPERCHARGE)
+				||  (speed == BattleTech::Speed::JUMP) )
 				{
-					std::string speed_str = (speed == BattleTech::Move::JUMP) ? "jumping" : "running";
+					std::string speed_str = (speed == BattleTech::Speed::JUMP) ? "jumping" : "running";
 					
 					if( mech->Gyro && mech->Gyro->Damaged )
 						mech->PSRs.push( std::string("to avoid fall after ") + speed_str + std::string(" with Gyro damage") );
@@ -637,7 +689,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 						mech->PSRs.push( std::string("to avoid fall after ") + speed_str + std::string(" with Hip damage") );
 				}
 				
-				if( speed == BattleTech::Move::JUMP )
+				if( speed == BattleTech::Speed::JUMP )
 				{
 					for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
 					{
@@ -716,7 +768,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			
 			e.Text = mech->ShortFullName();
 			if( ! mech->MoveSpeed )
-				e.Text += (move_speed >= BattleTech::Move::RUN) ? " stands up running." : " stands up walking.";
+				e.Text += (move_speed >= BattleTech::Speed::RUN) ? " stands up running." : " stands up walking.";
 			else
 				e.Text += " stands up.";
 			e.Duration = 0.5f;
@@ -780,7 +832,30 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		{
 			e.Text = from->ShortFullName() + std::string(" has declared ") + Num::ToString((int)count) + std::string((count == 1)?" weapon to fire.":" weapons to fire.");
 			Packet events( BattleTech::Packet::EVENTS );
-			events.AddUShort( 1 );
+			events.AddUShort( count ? 2 : 1 );
+			
+			if( count )
+			{
+				PacketSize offset = packet->Offset;
+				
+				// FIXME: Declare all targets and weapons, not just the first target.
+				uint32_t target_id = packet->NextUInt();
+				Mech *target = (Mech*) Data.GetObject( target_id );
+				if( target && (target->Type() == BattleTech::Object::MECH) )
+				{
+					from->DeclaredTarget = target->ID;
+					Event declare( from );
+					declare.Effect = BattleTech::Effect::DECLARE_ATTACK;
+					declare.X = target->X;
+					declare.Y = target->Y;
+					declare.Misc = count;
+					declare.Duration = 0.f;
+					declare.AddToPacket( &events );
+				}
+				
+				packet->Offset = offset;
+			}
+			
 			e.AddToPacket( &events );
 			Net.SendAll( &events );
 		}
@@ -1197,7 +1272,30 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		else
 			e.Text = from->ShortFullName() + std::string(" is not attacking.");
 		Packet events( BattleTech::Packet::EVENTS );
-		events.AddUShort( 1 );
+		events.AddUShort( count ? 2 : 1 );
+		
+		if( count )
+		{
+			PacketSize offset = packet->Offset;
+			
+			// FIXME: Declare types of melee attack.
+			uint32_t target_id = packet->NextUInt();
+			Mech *target = (Mech*) Data.GetObject( target_id );
+			if( target && (target->Type() == BattleTech::Object::MECH) )
+			{
+				from->DeclaredTarget = target->ID;
+				Event declare( from );
+				declare.Effect = BattleTech::Effect::DECLARE_ATTACK;
+				declare.X = target->X;
+				declare.Y = target->Y;
+				declare.Misc = count;
+				declare.Duration = 0.f;
+				declare.AddToPacket( &events );
+			}
+			
+			packet->Offset = offset;
+		}
+		
 		e.AddToPacket( &events );
 		Net.SendAll( &events );
 		
@@ -1399,6 +1497,10 @@ void BattleTechServer::ChangeState( int state )
 	
 	if( state == BattleTech::State::SETUP )
 	{
+		update_precision = 127;
+		while( Events.size() )
+			Events.pop();
+		
 		// Clear dead Mechs from the board when going back to Setup.
 		std::set<uint32_t> remove;
 		for( std::map<uint32_t,GameObject*>::iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
@@ -1466,6 +1568,8 @@ void BattleTechServer::ChangeState( int state )
 			{
 				if( (*mech)->ReadyAndAble( state ) )
 					UnmovedUnits[ team->first ].insert( *mech );
+				else if( ! (*mech)->Destroyed() )
+					(*mech)->TookTurn = true;  // Prevent Mechs without TAG from skipping that phase by mistake.
 			}
 		}
 	}
@@ -1528,10 +1632,17 @@ void BattleTechServer::ChangeState( int state )
 			update.AddUInt( (*obj)->ID );
 			(*obj)->AddToUpdatePacketFromServer( &update, update_precision );
 			
-			if( (state == BattleTech::State::END) && (*obj)->Type() == BattleTech::Object::MECH )
+			if( (*obj)->Type() == BattleTech::Object::MECH )
 			{
 				const Mech *mech = (const Mech*) *obj;
-				if( ! mech->Destroyed() )
+				
+				// Clear DeclaredTarget at end of phase.
+				Event declare( mech );
+				declare.Effect = BattleTech::Effect::DECLARE_ATTACK;
+				declare.Duration = 0.f;
+				Events.push( declare );
+				
+				if( (state == BattleTech::State::END) && ! mech->Destroyed() )
 				{
 					// Clear TorsoTwist, TurnedArm, ArmsFlipped, and ProneFire at end of turn.
 					Event torso( mech );
@@ -1545,6 +1656,7 @@ void BattleTechServer::ChangeState( int state )
 		
 		Net.SendAll( &update );
 	}
+	
 	
 	SendEvents();
 	
@@ -1576,16 +1688,16 @@ bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
 	
 	if( ! already_declared )
 	{
-		if( mech->MASCTurns && (speed != BattleTech::Move::MASC) && (speed != BattleTech::Move::MASC_SUPERCHARGE) )
+		if( mech->MASCTurns && (speed != BattleTech::Speed::MASC) && (speed != BattleTech::Speed::MASC_SUPERCHARGE) )
 			mech->MASCTurns --;
-		if( mech->SuperchargerTurns && (speed != BattleTech::Move::SUPERCHARGE) && (speed != BattleTech::Move::MASC_SUPERCHARGE) )
+		if( mech->SuperchargerTurns && (speed != BattleTech::Speed::SUPERCHARGE) && (speed != BattleTech::Speed::MASC_SUPERCHARGE) )
 			mech->SuperchargerTurns --;
 	}
 	
 	mech->Attack = 0;
 	mech->Defense = 0;
 	
-	if( speed == BattleTech::Move::STOP )
+	if( speed == BattleTech::Speed::STOP )
 	{
 		Event e( mech );
 		e.Effect = BattleTech::Effect::BLINK;
@@ -1593,7 +1705,7 @@ bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
 		e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
 		Events.push( e );
 	}
-	else if( speed == BattleTech::Move::WALK )
+	else if( speed == BattleTech::Speed::WALK )
 	{
 		mech->Attack = 1;
 		
@@ -1610,7 +1722,7 @@ bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
 		e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
 		Events.push( e );
 	}
-	else if( speed == BattleTech::Move::RUN )
+	else if( speed == BattleTech::Speed::RUN )
 	{
 		mech->Attack = 2;
 		
@@ -1627,7 +1739,7 @@ bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
 		e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
 		Events.push( e );
 	}
-	else if( (speed == BattleTech::Move::MASC) || (speed == BattleTech::Move::SUPERCHARGE) || (speed == BattleTech::Move::MASC_SUPERCHARGE) )
+	else if( (speed == BattleTech::Speed::MASC) || (speed == BattleTech::Speed::SUPERCHARGE) || (speed == BattleTech::Speed::MASC_SUPERCHARGE) )
 	{
 		mech->Attack = 2;
 		
@@ -1637,7 +1749,7 @@ bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
 			
 			uint8_t masc_before_failed_check = 0;
 			
-			if( speed != BattleTech::Move::SUPERCHARGE ) // Used MASC.
+			if( speed != BattleTech::Speed::SUPERCHARGE ) // Used MASC.
 			{
 				mech->MASCTurns ++;
 				
@@ -1677,7 +1789,7 @@ bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
 				}
 			}
 			
-			if( speed != BattleTech::Move::MASC ) // Used Supercharger.
+			if( speed != BattleTech::Speed::MASC ) // Used Supercharger.
 			{
 				mech->SuperchargerTurns ++;
 				
@@ -1771,9 +1883,9 @@ bool BattleTechServer::DeclareMovement( Mech *mech, uint8_t speed, bool stand )
 			Event e( mech );
 			e.Effect = BattleTech::Effect::BLINK;
 			e.Sound = "m_run.wav";
-			if( speed == BattleTech::Move::MASC_SUPERCHARGE )
+			if( speed == BattleTech::Speed::MASC_SUPERCHARGE )
 				e.Text = mech->ShortFullName() + std::string(" is running with MASC and Supercharger." );
-			else if( speed == BattleTech::Move::SUPERCHARGE )
+			else if( speed == BattleTech::Speed::SUPERCHARGE )
 				e.Text = mech->ShortFullName() + std::string(" is running with Supercharger." );
 			else
 				e.Text = mech->ShortFullName() + std::string(" is running with MASC." );
@@ -1849,6 +1961,20 @@ double BattleTechServer::SendEvents( void )
 		return 0.;
 	
 	double duration = 0.;
+	
+	#define MAX_EVENTS_PER_PACKET 50
+	while( Events.size() > MAX_EVENTS_PER_PACKET )
+	{
+		Packet events( BattleTech::Packet::EVENTS );
+		events.AddUShort( MAX_EVENTS_PER_PACKET );
+		for( size_t i = 0; i < MAX_EVENTS_PER_PACKET; i ++ )
+		{
+			Events.front().AddToPacket( &events );
+			duration += Events.front().Duration;
+			Events.pop();
+		}
+		Net.SendAll( &events );
+	}
 	
 	Packet events( BattleTech::Packet::EVENTS );
 	events.AddUShort( Events.size() );

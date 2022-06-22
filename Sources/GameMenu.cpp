@@ -81,8 +81,7 @@ GameMenu::GameMenu( void )
 		int teams = game->Data.PropertyAsInt("teams",2);
 		for( int i = 1; i <= teams; i ++ )
 			AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
-		if( game->Cfg.SettingAsBool("debug") )
-			AITeam->AddItem( "1,2,3,4,5", " AI Team: All (No Humans)" );
+		AITeam->AddItem( "1,2,3,4,5", " AI Team: All (No Humans)" );
 		AITeam->Update();
 		group->AddElement( AITeam );
 		rect.y += rect.h + SPACING;
@@ -146,7 +145,7 @@ GameMenu::GameMenu( void )
 	rect.h = ItemFont->GetAscent() + 2;
 	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "record_sheet_popup", "Show Record Sheet for Damage" ) );
 	rect.y += rect.h + SPACING;
-	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "show_ecm", "Show Active ECM Ranges" ) );
+	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "show_ecm", "Show Relevant ECM Ranges" ) );
 	rect.y += rect.h + SPACING;
 	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "map_drag", "Left-Click to Drag Map" ) );
 	rect.y += rect.h + SPACING;
@@ -183,7 +182,7 @@ GameMenu::GameMenu( void )
 			DefaultButton = new GameMenuSpawnButton( &rect, ItemFont );
 			AddElement( DefaultButton );
 			
-			if( game->ReadyToBegin() )
+			if( game->ReadyToBegin() && game->Admin() )
 			{
 				rect.x = 10;
 				rect.w = Rect.w - rect.x * 2;
@@ -495,16 +494,11 @@ void GameMenuSvCheckBox::Changed( void )
 	info.AddString( Checked ? TrueStr : FalseStr );
 	game->Net.Send( &info );
 	
-	GameMenu *gm = (GameMenu*) game->Layers.Find("GameMenu");
-	int teams = game->Data.PropertyAsInt("teams",2);
-	if( gm && gm->AITeam && (Variable == "teams") )
+	if( Variable == "hotseat" )
 	{
-		teams = Str::AsInt( Checked ? TrueStr : FalseStr );
-		for( int i = gm->AITeam->Items.size(); i <= teams; i ++ )
-			gm->AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
-	}
-	else if( Variable == "hotseat" )
-	{
+		GameMenu *gm = (GameMenu*) game->Layers.Find("GameMenu");
+		int teams = game->Data.PropertyAsInt("teams",2);
+		
 		if( (teams == 2) && gm && gm->AITeam && (gm->AITeam->Value != "0") )
 			gm->AITeam->Select( "0" );  // FIXME: Prevent double sound.
 		
@@ -584,8 +578,13 @@ void GameMenuSvDropDown::Changed( void )
 	{
 		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 		teams = Str::AsInt( Value );
-		for( int i = gm->AITeam->Items.size(); i <= teams; i ++ )
+		gm->AITeam->Clear();
+		gm->AITeam->AddItem( "0", " AI Team: None" );
+		for( int i = 1; i <= teams; i ++ )
 			gm->AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
+		gm->AITeam->AddItem( "1,2,3,4,5", " AI Team: All (No Humans)" );
+		if( gm->AITeam->FindItem(gm->AITeam->Value) < 0 )
+			gm->AITeam->Select( 0 );
 	}
 	else if( gm && gm->Hotseat && gm->Hotseat->Checked && (teams == 2) && (Variable == "ai_team") && Str::AsInt(Value) )
 		gm->Hotseat->Clicked();  // FIXME: Prevent double sound.
