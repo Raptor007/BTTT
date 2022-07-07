@@ -111,7 +111,7 @@ void HexBoard::Draw( void )
 	Mech *selected = game->SelectedMech();
 	Mech *target = game->TargetMech();
 	
-	bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+	bool playing_events = game->PlayingEvents();
 	
 	for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = game->Data.GameObjects.begin(); obj_iter != game->Data.GameObjects.end(); obj_iter ++ )
 	{
@@ -471,41 +471,55 @@ void HexBoard::Draw( void )
 		}
 		else if( game->State == BattleTech::State::SETUP )
 		{
+			bool ready_to_begin = game->ReadyToBegin();
+			bool admin = game->Admin();
 			if( selected && selected->Steps.size() )
-				status = "Press Enter to submit new spawn position.";
+				status = "Press Enter to submit new drop position.";
+			else if( ready_to_begin && ! admin )
+				status = "Waiting for host to initiate combat.";
 			else if( game->Layers.Find("GameMenu") )
 			{
-				if( game->ReadyToBegin() )
-				{
-					if( game->Admin() )
-						status = "When everyone is ready, click Initiate Combat.";
-					else
-						status = "Waiting for host to Initiate Combat.";
-				}
+				if( ready_to_begin && admin )
+					status = "When everyone is ready, click Initiate Combat.";
 				else
-					status = "Set game options, then click Team/Mech to begin.";
+					status = "Set game options, then click Team/Mech to continue.";
 			}
 			else if( game->Layers.Find("SpawnMenu") )
 			{
-				if( my_team )
+				if( ready_to_begin )
+				{
+					if( ai && game->BotControlsTeam(my_team) && (game->Data.PropertyAsInts("ai_team").size() == 1) )
+						status = "Change to a non-AI team when ready to play.";
+					else if( game->Data.PropertyAsInt("mech_limit") == 1 )
+						status = "Right-click to move drop point, or press Enter when done.";
+					else
+						status = "Right-click to drop more Mechs, or press Enter when done.";
+				}
+				else if( ai && (! ready_to_begin) && game->MyMech() )
+				{
+					if( game->Data.PropertyAsInts("ai_team").size() > 1 )
+						status = "Change to another AI team to drop Mechs for them.";
+					else if( game->BotControlsTeam(my_team) )
+						status = "Change to a non-AI team to drop your Mechs.";
+					else
+						status = "Change to the AI team to drop Mechs for them.";
+				}
+				else if( my_team )
 					status = "Select a BattleMech, then right-click to drop.";
 				else
 					status = "Select a team and BattleMech, then right-click to drop.";
 			}
-			else if( selected && (selected->PlayerID == game->PlayerID) )
+			else if( ready_to_begin && admin )
 			{
-				if( (hotseat || ai) && ! game->ReadyToBegin() )
-					status = "Press Tab to spawn for the other team.  When done, press Enter.";
-				else if( game->ReadyToBegin() )
-				{
-					if( game->Admin() )
-						status = "When everyone is ready to play, press Enter.";
-					else
-						status = "Waiting for host to Initiate Combat.";
-				}
+				if( game->BotControlsTeam(my_team) && (game->Data.PropertyAsInts("ai_team").size() == 1) )
+					status = "Press Tab to switch back to your own team.";
 				else
-					status = "Use arrows to move spawn point and Enter to submit.";
+					status = "When everyone is ready to play, press Enter.";
 			}
+			else if( (hotseat || ai) && game->MyMech() )
+				status = "Press Tab to drop Mechs for the other team.  When done, press Enter.";
+			else if( game->MyMech() )
+				status = "Use arrows to move drop point and Enter to submit.";
 			else if( my_team )
 				status = "Right-click to drop.  Press Tab to change team/Mech.";
 			else
@@ -531,7 +545,7 @@ bool HexBoard::MouseDown( Uint8 button )
 	Mech *selected = game->SelectedMech();
 	Mech *target = game->TargetMech();
 	
-	bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+	bool playing_events = game->PlayingEvents();
 	
 	bool shift = game->Keys.KeyDown(SDLK_LSHIFT) || game->Keys.KeyDown(SDLK_RSHIFT);
 	
@@ -557,11 +571,11 @@ bool HexBoard::MouseDown( Uint8 button )
 			
 			if( selected && selected->DeclaredTarget )
 			{
-				ClearPath();  // FIXME: This should be ClearPath( false ) when UpdateWeaponsInRange no longer shows to-hit for undeclared weapons.
+				ClearPath( false );
 				game->TargetID = selected->DeclaredTarget;
 				target = game->TargetMech();
 				Path = map->Path( selected->X, selected->Y, target->X, target->Y );
-				//UpdateWeaponsInRange( selected, target );  // FIXME: Only show to-hit for declared weapons.
+				UpdateWeaponsInRange( selected, target );
 			}
 			else
 				ClearPath();
@@ -664,12 +678,9 @@ bool HexBoard::MouseDown( Uint8 button )
 			// Close the SpawnMenu after we drop a 'Mech so we can use arrow keys to move it.
 			RemoveSetupMenus();
 		}
-		/*
 		// Prevent trying other targets when a Mech has already declared its shot.
-		// FIXME: Commented-out because this currently prevents seeing the to-hit rolls of declared shots.
 		else if( (game->State >= BattleTech::State::TAG) && selected && selected->TookTurn )
 			;
-		*/
 		else if( selected )
 		{
 			uint8_t x = 0, y = 0, facing = BattleTech::Dir::UP;
@@ -751,7 +762,7 @@ bool HexBoard::KeyDown( SDLKey key )
 	Mech *target = game->TargetMech();
 	
 	bool enemy_turn = game->TeamTurn && game->MyTeam() && (game->TeamTurn != game->MyTeam());
-	bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+	bool playing_events = game->PlayingEvents();
 	
 	bool shift = game->Keys.KeyDown(SDLK_LSHIFT) || game->Keys.KeyDown(SDLK_RSHIFT);
 	bool alt = game->Keys.KeyDown(SDLK_LALT) || game->Keys.KeyDown(SDLK_RALT);
@@ -804,7 +815,7 @@ bool HexBoard::KeyDown( SDLKey key )
 	}
 	else if( key == SDLK_p )
 	{
-		bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+		bool playing_events = game->PlayingEvents();
 		RecordSheet *rs = (RecordSheet*) game->Layers.Find("RecordSheet");
 		if( playing_events )
 		{

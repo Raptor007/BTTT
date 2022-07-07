@@ -241,6 +241,7 @@ install:
 	-rsync -ax --exclude=".*" Textures "$(GAMEDIR)/"
 	-rsync -ax --exclude=".*" Mechs "$(GAMEDIR)/"
 	-rsync -ax --exclude=".*" *.DAT "$(GAMEDIR)/"
+	-rsync -ax --exclude=".*" *.ini "$(GAMEDIR)/"
 	rsync -ax "$(PRODUCT)" "$(GAMEDIR)/"
 
 server-install:

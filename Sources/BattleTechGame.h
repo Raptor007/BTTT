@@ -23,6 +23,7 @@ public:
 	std::map< short, HMWeapon > ClanWeap, ISWeap;
 	std::map< std::string, Variant > Variants;
 	std::map< std::string, std::map<uint8_t,const Animation*> > MechTex;
+	std::vector< std::pair<std::string,std::string> > Biomes;
 	std::map< uint32_t, bool > ReadyAndAbleCache;
 	
 	double X, Y, Zoom;
@@ -38,7 +39,9 @@ public:
 	void Setup( int argc, char **argv );
 	void LoadDatabases( void );
 	void LoadMechTex( void );
+	void LoadBiomes( void );
 	size_t LoadVariants( std::string dir );
+	bool HasMechTex( std::string name ) const;
 	void Precache( void );
 	
 	void Update( double dt );
@@ -57,10 +60,12 @@ public:
 	GameObject *NewObject( uint32_t id, uint32_t type );
 	
 	HexMap *Map( void );
+	bool PlayingEvents( void ) const;
 	bool Hotseat( void ) const;
 	bool FF( void ) const;
 	bool Admin( void );
 	bool ReadyToBegin( void );
+	Mech *MyMech( void );
 	uint8_t TeamsAlive( void ) const;
 	uint8_t MyTeam( void );
 	std::string TeamName( uint8_t team_num ) const;

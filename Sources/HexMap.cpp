@@ -586,6 +586,8 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 				uint8_t cover = 0;
 				if( hex->Height >= los_height )
 					cover = 2;
+				else if( (here_dist == 1) && (dest_dist == 1) && ((hex->Height >= here_height) || (hex->Height >= dest_height)) )
+					cover = 2;
 				else if( hex->Height == los_height - 1 )
 				{
 					if( (dest_dist == 1) && (dest_height >= here_height) )
@@ -900,6 +902,126 @@ void HexMap::Draw( void )
 	};
 	GLuint texture = Raptor::Game->Res.GetTexture("hex.png");
 	
+	std::map<int8_t,Color> biome_colors;
+	std::map<int8_t,Color> biome_scales;
+	std::vector<double> biome_vals = Data->PropertyAsDoubles("biome");
+	while( biome_vals.size() > 7 )
+	{
+		biome_colors[ biome_vals[ 6 ] ].Red   = biome_vals[ 0 ];
+		biome_colors[ biome_vals[ 6 ] ].Green = biome_vals[ 1 ];
+		biome_colors[ biome_vals[ 6 ] ].Blue  = biome_vals[ 2 ];
+		biome_scales[ biome_vals[ 6 ] ].Red   = biome_vals[ 3 ];
+		biome_scales[ biome_vals[ 6 ] ].Green = biome_vals[ 4 ];
+		biome_scales[ biome_vals[ 6 ] ].Blue  = biome_vals[ 5 ];
+		for( size_t i = 0; i < 7; i ++ )
+			biome_vals.erase( biome_vals.begin() );
+	}
+	if( biome_vals.size() >= 3 )
+	{
+		biome_colors[ 127 ].Red   = biome_vals[ 0 ];
+		biome_colors[ 127 ].Green = biome_vals[ 1 ];
+		biome_colors[ 127 ].Blue  = biome_vals[ 2 ];
+	}
+	if( biome_vals.size() >= 6 )
+	{
+		biome_scales[ 127 ].Red   = biome_vals[ 3 ];
+		biome_scales[ 127 ].Green = biome_vals[ 4 ];
+		biome_scales[ 127 ].Blue  = biome_vals[ 5 ];
+	}
+	
+	// Default trees are green.
+	Color tree1( 0.2f, 0.7f, 0.1f, 1.f ), tree2( 0.f, 0.5f, 0.1f, 1.f );
+	std::map<int8_t,Color>::const_iterator biome_color = biome_colors.lower_bound( 0 );
+	if( biome_color != biome_colors.end() )
+	{
+		// Use biome colors if defined.
+		Color c( biome_color->second );
+		std::map<int8_t,Color>::const_iterator biome_scale = biome_scales.find( biome_color->first );
+		if( biome_scale != biome_scales.end() )
+		{
+			c.Red   *= biome_scale->second.Red;
+			c.Green *= biome_scale->second.Green;
+			c.Blue  *= biome_scale->second.Blue;
+		}
+		if( (c.Blue >= c.Red) && (c.Blue >= c.Green) )
+		{
+			if( c.Red >= c.Green )
+			{
+				// Lunar
+				tree1.Red   = 0.4f;
+				tree1.Green = 0.4f;
+				tree1.Blue  = 0.5f;
+				tree2.Red   = 0.35f;
+				tree2.Green = 0.3f;
+				tree2.Blue  = 0.4f;
+			}
+			else
+			{
+				// Arctic
+				tree1.Red   = 0.f;
+				tree1.Green = 0.5f;
+				tree1.Blue  = 0.4f;
+				tree2.Red   = 0.f;
+				tree2.Green = 0.3f;
+				tree2.Blue  = 0.3f;
+			}
+		}
+		else if( (c.Green >= c.Red) && (c.Green >= c.Blue) )
+		{
+			if( c.Red >= c.Blue )
+			{
+				// Grasslands/Alpine
+				tree1.Red   = 0.2f;
+				tree1.Green = 0.7f;
+				tree1.Blue  = 0.1f;
+				tree2.Red   = 0.f;
+				tree2.Green = 0.5f;
+				tree2.Blue  = 0.1f;
+			}
+			else
+			{
+				tree1.Red   = 0.f;
+				tree1.Green = 0.5f;
+				tree1.Blue  = 0.1f;
+				tree2.Red   = 0.f;
+				tree2.Green = 0.5f;
+				tree2.Blue  = 0.4f;
+			}
+		}
+		else // Red
+		{
+			if( c.Green > c.Blue * 1.25f )
+			{
+				// Desert
+				tree1.Red   = 0.3f;
+				tree1.Green = 0.5f;
+				tree1.Blue  = 0.1f;
+				tree2.Red   = 0.05f;
+				tree2.Green = 0.35f;
+				tree2.Blue  = 0.05f;
+			}
+			else if( c.Green >= c.Blue )
+			{
+				// Volcanic/Martian
+				tree1.Red   = 0.7f;
+				tree1.Green = 0.25f;
+				tree1.Blue  = 0.1f;
+				tree2.Red   = 0.5f;
+				tree2.Green = 0.f;
+				tree2.Blue  = 0.1f;
+			}
+			else
+			{
+				tree1.Red   = 0.7f;
+				tree1.Blue  = 0.2f;
+				tree1.Blue  = 0.1f;
+				tree2.Red   = 0.6f;
+				tree2.Blue  = 0.f;
+				tree2.Green = 0.f;
+			}
+		}
+	}
+	
 	for( std::vector< std::vector<Hex> >::const_iterator col = Hexes.begin(); col != Hexes.end(); col ++ )
 	{
 		for( std::vector<Hex>::const_iterator hex = col->begin(); hex != col->end(); hex ++ )
@@ -909,7 +1031,20 @@ void HexMap::Draw( void )
 			
 			// Default ground color is light green.
 			Color c( 0.65f, 0.85f, 0.45f, 1.f );
-			if( hex->Height < 0 )
+			std::map<int8_t,Color>::const_iterator biome_color = biome_colors.lower_bound( hex->Height );
+			if( biome_color != biome_colors.end() )
+			{
+				// Use biome colors if defined.
+				c = biome_color->second;
+				std::map<int8_t,Color>::const_iterator biome_scale = biome_scales.find( biome_color->first );
+				if( biome_scale != biome_scales.end() )
+				{
+					c.Red   *= powf( biome_scale->second.Red,   hex->Height );
+					c.Green *= powf( biome_scale->second.Green, hex->Height );
+					c.Blue  *= powf( biome_scale->second.Blue,  hex->Height );
+				}
+			}
+			else if( hex->Height < 0 )
 			{
 				// Pits are brown.
 				c.Red   = 0.7f * powf( 1.05f, hex->Height );
@@ -933,9 +1068,9 @@ void HexMap::Draw( void )
 			else
 			{
 				// Mountains are grey/white.
-				c.Red   = 0.8f  * powf( 1.1f,  hex->Height - 4 );
-				c.Green = 0.78f * powf( 1.15f, hex->Height - 4 );
-				c.Blue  = 0.75f * powf( 1.25f, hex->Height - 4 );
+				c.Red   = 0.5465f * powf( 1.1f,  hex->Height );
+				c.Green = 0.4288f * powf( 1.15f, hex->Height );
+				c.Blue  = 0.3072f * powf( 1.25f, hex->Height );
 			}
 			
 			// Draw the hex color.
@@ -968,7 +1103,7 @@ void HexMap::Draw( void )
 			// Draw forest.
 			if( hex->Forest >= 2 )
 			{
-				float r = 0.f, g = 0.5f, b = 0.1f;
+				float r = tree2.Red, g = tree2.Green, b = tree2.Blue;
 				GLuint tree = Raptor::Game->Res.GetTexture("tree.png");
 				if( tree )
 				{
@@ -988,7 +1123,7 @@ void HexMap::Draw( void )
 			}
 			else if( hex->Forest )
 			{
-				float r = 0.2f, g = 0.7f, b = 0.1f;
+				float r = tree1.Red, g = tree1.Green, b = tree1.Blue;
 				GLuint tree = Raptor::Game->Res.GetTexture("tree.png");
 				if( tree )
 				{

@@ -152,6 +152,8 @@ public:
 	std::set<MechMelee> SelectedMelee;
 	bool TookTurn;
 	uint32_t DeclaredTarget;
+	std::map<uint8_t,uint8_t> DeclaredWeapons;
+	std::set<uint8_t> DeclaredMelee;
 	
 	uint8_t X, Y, Facing;
 	int8_t TorsoTwist, ProneFire, TurnedArm;
@@ -200,6 +202,8 @@ public:
 	std::string FullName( void ) const;
 	std::string ShortName( void ) const;
 	std::string ShortFullName( void ) const;
+	
+	const Player *Owner( void ) const;
 	
 	uint8_t WalkDist( void ) const;
 	uint8_t RunDist( void ) const;

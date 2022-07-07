@@ -70,6 +70,9 @@ GameMenu::GameMenu( void )
 			GameMenuSvDropDown *teams = new GameMenuSvDropDown( &rect, ItemFont, "teams" );
 			for( int i = 2; i <= 5; i ++ )
 				teams->AddItem( Num::ToString(i), std::string(" Number of Teams: ") + Num::ToString(i) );
+			std::string current_teams = game->Data.PropertyAsString("teams","2");
+			if( teams->FindItem(current_teams) < 0 )
+				teams->AddItem( current_teams, std::string(" Number of Teams: ") + current_teams );
 			teams->Update();
 			group->AddElement( teams );
 			rect.y += rect.h + SPACING;
@@ -82,6 +85,9 @@ GameMenu::GameMenu( void )
 		for( int i = 1; i <= teams; i ++ )
 			AITeam->AddItem( Num::ToString(i), std::string(" AI Team: ") + game->TeamName(i) );
 		AITeam->AddItem( "1,2,3,4,5", " AI Team: All (No Humans)" );
+		std::string current_ai = game->Data.PropertyAsString("ai_team","0");
+		if( AITeam->FindItem(current_ai) < 0 )
+			AITeam->AddItem( current_ai, std::string(" AI Team: ") + current_ai );
 		AITeam->Update();
 		group->AddElement( AITeam );
 		rect.y += rect.h + SPACING;
@@ -107,6 +113,19 @@ GameMenu::GameMenu( void )
 			rect.y += rect.h + SPACING;
 		}
 		
+		rect.h = ItemFont->GetAscent() + 6;
+		GameMenuSvDropDown *biome = new GameMenuSvDropDown( &rect, ItemFont, "biome" );
+		for( std::vector< std::pair<std::string,std::string> >::const_iterator b = game->Biomes.begin(); b != game->Biomes.end(); b ++ )
+			biome->AddItem( b->second, std::string(" Biome: ") + b->first );
+		if( ! game->Biomes.size() )
+			biome->AddItem( "", " Biome: Default" );
+		std::string current_biome = game->Data.PropertyAsString("biome");
+		if( biome->FindItem(current_biome) < 0 )
+			biome->AddItem( current_biome, current_biome.length() ? " Biome: Custom" : " Biome: Default" );
+		biome->Update();
+		group->AddElement( biome );
+		rect.y += rect.h + SPACING;
+		
 		group->SizeToElements();
 		group->Rect.w = group_rect.w;
 		group_rect.y += group->Rect.h + 10;
@@ -125,6 +144,9 @@ GameMenu::GameMenu( void )
 	event_speed->AddItem( "0.7", " Event Speed: Medium" );
 	event_speed->AddItem( "1",   " Event Speed: Fast" );
 	event_speed->AddItem( "2",   " Event Speed: Ludicrous" );
+	std::string current_speed = game->Cfg.SettingAsString("event_speed","1");
+	if( event_speed->FindItem(current_speed) < 0 )
+		event_speed->AddItem( current_speed, std::string(" Event Speed: ") + current_speed );
 	event_speed->Update();
 	group->AddElement( event_speed );
 	rect.y += rect.h + SPACING;
@@ -137,6 +159,9 @@ GameMenu::GameMenu( void )
 	s_volume->AddItem( "0.5", " Sound Volume: Loud" );
 	s_volume->AddItem( "0.7", " Sound Volume: Louder" );
 	s_volume->AddItem( "1",   " Sound Volume: Loudest" );
+	std::string current_volume = game->Cfg.SettingAsString("s_volume","1");
+	if( s_volume->FindItem(current_volume) < 0 )
+		s_volume->AddItem( current_volume, std::string(" Sound Volume: ") + current_volume );
 	s_volume->Update();
 	s_volume->Sound = Raptor::Game->Res.GetSound("i_target.wav");
 	group->AddElement( s_volume );

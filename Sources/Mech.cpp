@@ -1135,7 +1135,7 @@ void Mech::ClientInit( void )
 {
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	
-	if( game->State == BattleTech::State::SETUP )
+	if( (game->State == BattleTech::State::SETUP) && ! game->Cfg.SettingAsBool("screensaver") )
 		game->Snd.Play( game->Res.GetSound("m_start.wav") );
 	
 	InitTex();
@@ -1427,6 +1427,15 @@ void Mech::AddToUpdatePacketFromServer( Packet *packet, int8_t precision )
 		packet->AddUChar( HeatMove | (HeatFire << 4) );
 		
 		packet->AddUInt( DeclaredTarget );
+		packet->AddUChar( DeclaredWeapons.size() );
+		for( std::map<uint8_t,uint8_t>::const_iterator declared = DeclaredWeapons.begin(); declared != DeclaredWeapons.end(); declared ++ )
+		{
+			packet->AddUChar( declared->first );
+			packet->AddUChar( declared->second );
+		}
+		packet->AddUChar( DeclaredMelee.size() );
+		for( std::set<uint8_t>::const_iterator declared = DeclaredMelee.begin(); declared != DeclaredMelee.end(); declared ++ )
+			packet->AddUChar( *declared );
 	}
 	
 	packet->AddUChar( X );
@@ -1515,13 +1524,30 @@ void Mech::ReadFromUpdatePacketFromServer( Packet *packet, int8_t precision )
 		
 		uint32_t declared_target = packet->NextUInt();
 		
+		uint8_t shot_count = packet->NextUChar();
+		std::map<uint8_t,uint8_t> declared_weapons;
+		for( uint8_t i = 0; i < shot_count; i ++ )
+		{
+			uint8_t weapon_id = packet->NextUChar();
+			declared_weapons[ weapon_id ] = packet->NextUChar();
+		}
+		
+		uint8_t melee_count = packet->NextUChar();
+		std::set<uint8_t> declared_melee;
+		for( uint8_t i = 0; i < melee_count; i ++ )
+			declared_melee.insert( packet->NextUChar() );
+		
 		if( Destroyed(true) )
 		{
 			Locations[ CENTER_TORSO ].Destroyed = true;
 			Locations[ CENTER_TORSO ].DestroyedClock.Advance( -10. );
 		}
 		else
-			DeclaredTarget = declared_target;
+		{
+			DeclaredTarget  = declared_target;
+			DeclaredWeapons = declared_weapons;
+			DeclaredMelee   = declared_melee;
+		}
 	}
 	
 	uint8_t x = packet->NextUChar();
@@ -1730,6 +1756,15 @@ std::string Mech::ShortFullName( void ) const
 	if( Var.length() )
 		name += std::string(" ") + Var;
 	return name;
+}
+
+
+const Player *Mech::Owner( void ) const
+{
+	const Player *owner = Data->GetPlayer( PlayerID );
+	if( owner && (owner->PropertyAsInt("team") == Team) )
+		return owner;
+	return NULL;
 }
 
 
@@ -2961,6 +2996,8 @@ void Mech::BeginPhase( int phase )
 	StandAttempts = 0;
 	TookTurn = false;
 	DeclaredTarget = 0;
+	DeclaredWeapons.clear();
+	DeclaredMelee.clear();
 	
 	if( Destroyed() )
 		return;
@@ -2990,6 +3027,9 @@ void Mech::BeginPhase( int phase )
 	{
 		if( Unconscious )
 			Unconscious = 2;
+		
+		// Clear checkbox "Spot for Indirect Fire" each turn.
+		WeaponsToFire[ 0xFF ] = 0;
 	}
 	
 	if( (phase == BattleTech::State::HEAT) && ! ClientSide() )
@@ -3525,7 +3565,7 @@ uint8_t Mech::SpeedNeeded( bool final_position ) const
 		return BattleTech::Speed::RUN;
 	
 	// Minimum Movement rule allows entering the hex ahead using a single movement point.
-	if( (Steps.size() == 1) && (Steps.back().Step == 1) && WalkDist() && ! StandAttempts )
+	if( (Steps.size() == 1) && (Steps.back().Step == 1) && (cost < 99) && WalkDist() && ! StandAttempts )
 		return BattleTech::Speed::RUN;
 	
 	// If we declared running before standing, that's our move limit.
@@ -3947,7 +3987,7 @@ void Mech::Draw( void )
 	if( ECM && ! ECM->Damaged && ! Shutdown && ! Destroyed() && game->Cfg.SettingAsBool("show_ecm",true) )
 	{
 		bool relevant_ecm = (game->Cfg.SettingAsString("show_ecm") == "all");
-		bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+		bool playing_events = game->PlayingEvents();
 		const Mech *selected = game->SelectedMech();
 		HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
 		
@@ -4001,7 +4041,7 @@ static const char *HealthIcons[ BattleTech::Loc::COUNT * 3 ] = {
 void Mech::DrawHealth( double x1, double y1, double x2, double y2 ) const
 {
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-	bool playing_events = (game->EventClock.RemainingSeconds() > -0.1) || game->Events.size();
+	bool playing_events = game->PlayingEvents();
 	
 	for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
 	{

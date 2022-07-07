@@ -826,37 +826,59 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		uint8_t count     = count_and_flags & 0x7F;
 		from->ArmsFlipped = count_and_flags & 0x80;
 		
+		uint32_t target_ids    [ 128 ] = {0};
+		uint8_t  arcs_and_flags[ 128 ] = {0};
+		uint8_t  eq_indices    [ 128 ] = {0};
+		uint8_t  fire_counts   [ 128 ] = {0};
+		int8_t   difficulties  [ 128 ] = {0};
+		
+		for( uint8_t i = 0; i < count; i ++ )
+		{
+			target_ids    [ i ] = packet->NextUInt();
+			arcs_and_flags[ i ] = packet->NextUChar();
+			eq_indices    [ i ] = packet->NextUChar();
+			fire_counts   [ i ] = packet->NextUChar();
+			difficulties  [ i ] = packet->NextChar();
+		}
+		
 		Event e( from );
 		e.Effect = BattleTech::Effect::BLINK;
 		if( State != BattleTech::State::TAG )
 		{
 			e.Text = from->ShortFullName() + std::string(" has declared ") + Num::ToString((int)count) + std::string((count == 1)?" weapon to fire.":" weapons to fire.");
 			Packet events( BattleTech::Packet::EVENTS );
-			events.AddUShort( count ? 2 : 1 );
+			bool show_twist = from->TorsoTwist || (from->TurnedArm != BattleTech::Loc::UNKNOWN) || from->ArmsFlipped || (from->ProneFire != BattleTech::Loc::UNKNOWN);
+			events.AddUShort( 1 + count + (show_twist ? 1 : 0) );
 			
-			if( count )
+			for( uint8_t i = 0; i < count; i ++ )
 			{
-				PacketSize offset = packet->Offset;
-				
-				// FIXME: Declare all targets and weapons, not just the first target.
-				uint32_t target_id = packet->NextUInt();
-				Mech *target = (Mech*) Data.GetObject( target_id );
+				Mech *target = (Mech*) Data.GetObject( target_ids[ i ] );
 				if( target && (target->Type() == BattleTech::Object::MECH) )
 				{
 					from->DeclaredTarget = target->ID;
+					from->DeclaredWeapons[ eq_indices[ i ] ] = fire_counts[ i ];
 					Event declare( from );
 					declare.Effect = BattleTech::Effect::DECLARE_ATTACK;
 					declare.X = target->X;
 					declare.Y = target->Y;
-					declare.Misc = count;
+					declare.Misc = eq_indices[ i ];  // FIXME: Send fire count too!
 					declare.Duration = 0.f;
 					declare.AddToPacket( &events );
 				}
-				
-				packet->Offset = offset;
 			}
 			
 			e.AddToPacket( &events );
+			
+			if( show_twist )
+			{
+				Event torso( from );
+				torso.Effect = BattleTech::Effect::TORSO_TWIST;
+				torso.ShowFacing( from );
+				torso.Sound = "m_twist.wav";
+				torso.Duration = 0.4f;
+				torso.AddToPacket( &events );
+			}
+			
 			Net.SendAll( &events );
 		}
 		
@@ -866,27 +888,15 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			e.Text = from->ShortFullName() + std::string(" is firing ") + Num::ToString((int)count) + std::string((count == 1)?" weapon.":" weapons." );
 		Events.push( e );
 		
-		Event torso( from );
-		torso.Effect = BattleTech::Effect::TORSO_TWIST;
-		torso.ShowFacing( from );
-		if( from->TorsoTwist || (from->TurnedArm != BattleTech::Loc::UNKNOWN) || from->ArmsFlipped || (from->ProneFire != BattleTech::Loc::UNKNOWN) )
-		{
-			torso.Sound = "m_twist.wav";
-			torso.Duration = 0.4f;
-		}
-		else
-			torso.Duration = 0.f;
-		Events.push( torso );
-		
 		for( uint8_t i = 0; i < count; i ++ )
 		{
-			uint32_t target_id = packet->NextUInt();
+			uint32_t target_id = target_ids[ i ];
 			
 			Mech *target = (Mech*) Data.GetObject( target_id );
 			if( target && (target->Type() != BattleTech::Object::MECH) )
 				target = NULL;
 			
-			uint8_t arc_and_flags = packet->NextUChar();
+			uint8_t arc_and_flags = arcs_and_flags[ i ];
 			
 			uint8_t hit_arc = arc_and_flags & 0x03; // 2-bit location arc (values 0-3).
 			bool indirect   = arc_and_flags & 0x80;
@@ -900,9 +910,9 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			if( ecm && target && target->ECM && ! target->ECM->Damaged && ! target->Shutdown )
 				angel_ecm = strstr( target->ECM->Name.c_str(), "Angel" );
 			
-			uint8_t eq_index   = packet->NextUChar();
-			uint8_t fire_count = packet->NextUChar();
-			int8_t  difficulty = packet->NextChar();
+			uint8_t eq_index   = eq_indices  [ i ];
+			uint8_t fire_count = fire_counts [ i ];
+			int8_t  difficulty = difficulties[ i ];
 			
 			if( (! from) || (! target) || (eq_index >= from->Equipment.size()) )
 				continue;
@@ -1263,24 +1273,37 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		
 		uint8_t count = packet->NextUChar();
 		
+		uint32_t target_ids     [ 2 ] = {0};
+		uint8_t  arcs_and_tables[ 2 ] = {0};
+		uint8_t  attacks        [ 2 ] = {0};
+		int8_t   difficulties   [ 2 ] = {0};
+		uint8_t  damages        [ 2 ] = {0};
+		uint8_t  limbs          [ 2 ] = {0};
+		
+		for( uint8_t i = 0; i < count; i ++ )
+		{
+			target_ids     [ i ] = packet->NextUInt();
+			arcs_and_tables[ i ] = packet->NextUChar();
+			attacks        [ i ] = packet->NextUChar();
+			difficulties   [ i ] = packet->NextChar();
+			damages        [ i ] = packet->NextUChar();
+			limbs          [ i ] = packet->NextUChar();
+		}
+		
 		Event e( from );
 		e.Effect = BattleTech::Effect::BLINK;
 		if( count >= 2 )
-			e.Text = from->ShortFullName() + std::string(" has declared 2 physical attacks.");
+			e.Text = from->ShortFullName() + std::string(" has declared ") + Num::ToString(count) + std::string(" physical attacks.");
 		else if( count == 1 )
 			e.Text = from->ShortFullName() + std::string(" has declared 1 physical attack.");
 		else
 			e.Text = from->ShortFullName() + std::string(" is not attacking.");
 		Packet events( BattleTech::Packet::EVENTS );
-		events.AddUShort( count ? 2 : 1 );
+		events.AddUShort( 1 + count );
 		
-		if( count )
+		for( uint8_t i = 0; i < count; i ++ )
 		{
-			PacketSize offset = packet->Offset;
-			
-			// FIXME: Declare types of melee attack.
-			uint32_t target_id = packet->NextUInt();
-			Mech *target = (Mech*) Data.GetObject( target_id );
+			Mech *target = (Mech*) Data.GetObject( target_ids[ i ] );
 			if( target && (target->Type() == BattleTech::Object::MECH) )
 			{
 				from->DeclaredTarget = target->ID;
@@ -1288,12 +1311,10 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				declare.Effect = BattleTech::Effect::DECLARE_ATTACK;
 				declare.X = target->X;
 				declare.Y = target->Y;
-				declare.Misc = count;
+				declare.Misc = attacks[ i ] | (limbs[ i ] << 5);
 				declare.Duration = 0.f;
 				declare.AddToPacket( &events );
 			}
-			
-			packet->Offset = offset;
 		}
 		
 		e.AddToPacket( &events );
@@ -1307,20 +1328,21 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		
 		for( uint8_t i = 0; i < count; i ++ )
 		{
-			Mech *target = NULL;
-			uint32_t target_id = packet->NextUInt();
-			target = (Mech*) Data.GetObject( target_id );
+			uint32_t target_id = target_ids[ i ];
+			
+			Mech *target = (Mech*) Data.GetObject( target_id );
 			if( target && (target->Type() != BattleTech::Object::MECH) )
 				target = NULL;
 			
-			uint8_t arc_and_table = packet->NextUChar();
+			uint8_t arc_and_table = arcs_and_tables[ i ];
+			
 			uint8_t hit_arc   =  arc_and_table & 0x03;
 			uint8_t hit_table = (arc_and_table & 0x0C) >> 2;
 			
-			uint8_t melee = packet->NextUChar();
-			int8_t difficulty = packet->NextChar();
-			uint8_t damage = packet->NextUChar();
-			uint8_t limb = packet->NextUChar();
+			uint8_t melee      = attacks     [ i ];
+			int8_t  difficulty = difficulties[ i ];
+			uint8_t damage     = damages     [ i ];
+			uint8_t limb       = limbs       [ i ];
 			
 			if( ! target )
 				break;

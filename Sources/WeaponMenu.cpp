@@ -104,8 +104,11 @@ bool WeaponMenu::Update( bool force )
 
 void WeaponMenu::UpdateWeapons( void )
 {
-	Rect.w = 640;
-	Rect.x = Raptor::Game->Gfx.W/2 - Rect.w/2;
+	if( Rect.w != 640 )
+	{
+		Rect.x -= (640 - (Sint16)(Rect.w)) / 2;
+		Rect.w = 640;
+	}
 	
 	RemoveAllElements();
 	
@@ -164,6 +167,13 @@ void WeaponMenu::UpdateWeapons( void )
 			needed_roll = difficulty->second;
 		else if( eq->Weapon->TAG == (game->State == BattleTech::State::TAG) )
 			needed_roll = Selected->WeaponRollNeeded( target, &(hex_board->Path), eq );
+		
+		if( Selected->TookTurn && target && (Selected->DeclaredTarget == target->ID) )
+		{
+			std::map<uint8_t,uint8_t>::const_iterator declared = Selected->DeclaredWeapons.find( weap->first );
+			if( (declared == Selected->DeclaredWeapons.end()) || ! declared->second )
+				needed_roll = 99;
+		}
 		
 		if( eq->Weapon->RangeLong > longest_range )
 			longest_range = eq->Weapon->RangeLong;
@@ -256,6 +266,7 @@ void WeaponMenu::UpdateWeapons( void )
 				else
 					AddElement( new WeaponMenuCheckBox( &rect, ItemFont, Selected, weap->first, weap->second ) );
 			}
+			// FIXME: Show rapid fire when DeclaredWeapons has accurate fire counts.
 			
 			if( weap->second && eq->Location && eq->Location->IsArm() )
 				arms_firing.insert( eq->Location );
@@ -330,43 +341,48 @@ void WeaponMenu::UpdateWeapons( void )
 		rect.y += rect.h + 3;
 	}
 	
-	AddElement( new Label( &rect, "Spot for Indirect Fire", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	std::list<Layer*>::iterator line_element = Elements.end();
-	line_element --;
-	rect.x += 230;
-	
-	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	rect.x += 40;
-	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	rect.x += 40;
-	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	rect.x += 80;
-	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	rect.x += 40;
-	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	rect.x += 40;
-	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	rect.x += 40;
-	AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
-	
-	if( hex_board->Path.LineOfSight && (game->State == BattleTech::State::WEAPON_ATTACK) && ! Selected->FiredTAG() )
+	if( ! Selected->TookTurn )
 	{
-		rect.x = Rect.w - 60;
+		AddElement( new Label( &rect, "Spot for Indirect Fire", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		std::list<Layer*>::iterator line_element = Elements.end();
+		line_element --;
+		rect.x += 230;
+		
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 80;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
+		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+		rect.x += 40;
 		AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
 		
-		if( show_checkboxes )
+		if( hex_board->Path.LineOfSight && (game->State == BattleTech::State::WEAPON_ATTACK) && ! Selected->FiredTAG() )
 		{
-			rect.x = Rect.w - 30;
-			AddElement( new WeaponMenuCheckBox( &rect, ItemFont, Selected, 0xFF, Selected->WeaponsToFire[ 0xFF ] ) );
+			rect.x = Rect.w - 60;
+			AddElement( new Label( &rect, "-", ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
+			
+			if( show_checkboxes )
+			{
+				rect.x = Rect.w - 30;
+				AddElement( new WeaponMenuCheckBox( &rect, ItemFont, Selected, 0xFF, Selected->WeaponsToFire[ 0xFF ] ) );
+			}
 		}
+		else if( hex_board->Path.LineOfSight && (game->State == BattleTech::State::TAG) )
+			;
+		else for( ; line_element != Elements.end(); line_element ++ )
+			(*line_element)->Alpha = 0.5f;
+		
+		rect.x = 10;
+		rect.y += rect.h + 3;
 	}
-	else if( hex_board->Path.LineOfSight && (game->State == BattleTech::State::TAG) )
-		;
-	else for( ; line_element != Elements.end(); line_element ++ )
-		(*line_element)->Alpha = 0.5f;
 	
-	rect.x = 10;
-	rect.y += rect.h + 8;
+	rect.y += 5;
 	std::string gato = std::string("G:") + Num::ToString(Selected->GunnerySkill) + std::string(" A:") + Num::ToString(Selected->Attack) + std::string(" T:");
 	gato += target ? Num::ToString(target->Defense) : std::string("");
 	int gato_other = 99;
@@ -455,8 +471,11 @@ void WeaponMenu::UpdateWeapons( void )
 
 void WeaponMenu::UpdateMelee( void )
 {
-	Rect.w = 300;
-	Rect.x = Raptor::Game->Gfx.W/2 - Rect.w/2;
+	if( Rect.w != 300 )
+	{
+		Rect.x -= (300 - (Sint16)(Rect.w)) / 2;
+		Rect.w = 300;
+	}
 	
 	RemoveAllElements();
 	
@@ -487,6 +506,9 @@ void WeaponMenu::UpdateMelee( void )
 	rect.y += rect.h + 5;
 	
 	HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
+	
+	Mech *target = game->TargetMech();
+	bool show_checkboxes = (! Selected->TookTurn) && (Selected->Team == game->MyTeam());
 	
 	uint8_t index = 0;
 	for( std::set<MechMelee>::iterator melee = hex_board->PossibleMelee.begin(); melee != hex_board->PossibleMelee.end(); melee ++ )
@@ -523,23 +545,42 @@ void WeaponMenu::UpdateMelee( void )
 		AddElement( new Label( &rect, Num::ToString(melee->Damage), ItemFont, Font::ALIGN_MIDDLE_LEFT ) );
 		rect.x = Rect.w - 60;
 		
-		if( melee->Difficulty <= 12 )
+		int8_t difficulty = melee->Difficulty;
+		
+		if( Selected->TookTurn && target && (Selected->DeclaredTarget == target->ID) )
 		{
-			Label *roll_label = new Label( &rect, Num::ToString(melee->Difficulty), ItemFont, Font::ALIGN_MIDDLE_LEFT );
+			bool found = false;
+			for( std::set<uint8_t>::const_iterator declared = Selected->DeclaredMelee.begin(); declared != Selected->DeclaredMelee.end(); declared ++ )
+			{
+				uint8_t attack =  (*declared) & 0x1F;
+				uint8_t limb   = ((*declared) & 0xE0) >> 5;
+				if( (attack == melee->Attack) && (limb == melee->Limb) )
+				{
+					found = true;
+					break;
+				}
+			}
+			if( ! found )
+				difficulty = 99;
+		}
+		
+		if( difficulty <= 12 )
+		{
+			Label *roll_label = new Label( &rect, Num::ToString(difficulty), ItemFont, Font::ALIGN_MIDDLE_LEFT );
 			AddElement( roll_label );
-			if( melee->Difficulty == 12 )
+			if( difficulty == 12 )
 			{
 				roll_label->Green = 0.5f;
 				roll_label->Blue = 0.5f;
 			}
-			else if( melee->Difficulty >= 9 )
+			else if( difficulty >= 9 )
 			{
 				roll_label->Green = 0.75f;
 				roll_label->Blue = 0.5f;
 			}
-			else if( melee->Difficulty >= 6 )
+			else if( difficulty >= 6 )
 				roll_label->Blue = 0.5f;
-			else if( melee->Difficulty >= 3 )
+			else if( difficulty >= 3 )
 			{
 				roll_label->Red = 0.5f;
 				roll_label->Blue = 0.5f;
@@ -548,7 +589,7 @@ void WeaponMenu::UpdateMelee( void )
 				roll_label->Red = 0.5f;
 			rect.x += 30;
 			
-			if( Selected->Team == game->MyTeam() )
+			if( show_checkboxes )
 				AddElement( new WeaponMenuCheckBox( &rect, ItemFont, Selected, index, (Selected->SelectedMelee.find( *melee ) != Selected->SelectedMelee.end()) ) );
 		}
 		else
@@ -565,7 +606,6 @@ void WeaponMenu::UpdateMelee( void )
 	rect.x = 10;
 	rect.y += 5;
 	std::string pato = std::string("P:") + Num::ToString(Selected->PilotSkill) + std::string(" A:") + Num::ToString(Selected->Attack) + std::string(" T:");
-	Mech *target = game->TargetMech();
 	pato += target ? Num::ToString(target->Defense) : std::string("");
 	int pato_other = hex_board->Path.Modifier;
 	if( target && target->Prone )
@@ -610,6 +650,12 @@ void WeaponMenu::UpdateHeatTotal( void )
 		std::map<uint8_t,int8_t>::const_iterator difficulty = hex_board->WeaponsInRange.find( weap->first );
 		if( (difficulty == hex_board->WeaponsInRange.end()) || (difficulty->second > 12) )
 			shot_count = 0;
+		
+		if( Selected->TookTurn && Selected->DeclaredTarget )
+		{
+			std::map<uint8_t,uint8_t>::const_iterator declared = Selected->DeclaredWeapons.find( weap->first );
+			shot_count = (declared != Selected->DeclaredWeapons.end()) ? declared->second : 0;
+		}
 		
 		MechEquipment *eq = &(Selected->Equipment[ weap->first ]);
 		shot_heat += shot_count * eq->Weapon->Heat;

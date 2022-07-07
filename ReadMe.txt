@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|            0.9.5 Beta (2022-06-22)            |
+|            0.9.6 Beta (2022-07-07)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -124,12 +124,26 @@ Frequently Asked Questions (FAQ):
    and Total Warfare, attempting to clone how my friends and I play our tabletop games.
    Movements, attacks, and damage resolution are animated and described step by step,
    tracking damage on record sheets.  It is written in C++ and compiled to native code.
+* Why do I need HeavyMetal Pro to make custom Mechs?
+ - I chose HeavyMetal Pro to make custom record sheets for my tabletop games because it
+   was the best tool I could find as a stand-alone executable; most others require Java.
+   When I later decided to make BTTT, it made sense to try using the Mech variant files
+   I already had instead of tediously copying these stats from rulebooks.
 * Will there be a mobile/tablet port?
  - Maybe someday, but no promises.  I do have an Android phone now but prefer PC gaming.
    BTTT and RaptorEngine are both open source C++, so you are welcome to try porting it.
    You would probably need to ditch my SDL 1.2 bindings for SDL2, rework a few older GL
    calls that are not available in OpenGLES, and replace keyboard controls with touch.
 
+Version 0.9.6 Beta (2022-07-07):
+* The new Biome setting changes map colors, and you can edit MapBiome.ini to customize.
+* Clicking any Mech that has declared attacks now shows the attacks and to-hit rolls.
+* Torso twist is now displayed with attack declaration instead of resolution.
+* Spot for Indirect Fire no longer remains checked on subsequent turns.
+* Fixed some lines-of-sight checks for Mechs two hexes apart (one hex between them).
+* Fixed bug that allowed Mechs with jump jets to run up L3+ hills as Minimum Movement.
+* Fixed AI using torso twist when unnecessary (no shots) or illegal (unconscous).
+* Clarified setup prompts, especially when using AI teams.
 Version 0.9.5 Beta (2022-06-22):
 * Attack and defense modifiers are displayed while planning movement.
 * Declared attacks now show what they are targeting.

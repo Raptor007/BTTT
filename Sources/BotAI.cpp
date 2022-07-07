@@ -365,28 +365,20 @@ void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexM
 			ValueBonus -= 10. * From->SuperchargerTurns;
 	}
 	
-	if( (State == BattleTech::State::WEAPON_ATTACK) || (State == BattleTech::State::MOVEMENT) )
+	if( ((State == BattleTech::State::WEAPON_ATTACK) || (State == BattleTech::State::MOVEMENT)) && From->ReadyAndAble(State) )
 	{
 		// Determine best torso twist to hit this target.
-		uint8_t firing_arc = From->FiringArc( Target->X, Target->Y );
-		if( firing_arc == BattleTech::Arc::LEFT_SIDE )
-			TorsoTwist = -1;
-		else if( firing_arc == BattleTech::Arc::RIGHT_SIDE )
-			TorsoTwist = 1;
-		else if( firing_arc == BattleTech::Arc::REAR )
+		double value_c = ValueWithTwist( from, 0 );
+		double value_l = ValueWithTwist( from, -1 );
+		double value_r = ValueWithTwist( from, 1 );
+		if( (value_l > value_c) || (value_r > value_c) )
 		{
-			double value_c = ValueWithTwist( from, 0 );
-			double value_l = ValueWithTwist( from, -1 );
-			double value_r = ValueWithTwist( from, 1 );
-			if( (value_l > value_c) || (value_r > value_c) )
-			{
-				if( value_r > value_l )
-					TorsoTwist = 1;
-				else if( value_l > value_r )
-					TorsoTwist = -1;
-				else
-					TorsoTwist = (angle > 0.) ? 1 : -1;
-			}
+			if( value_r > value_l )
+				TorsoTwist = 1;
+			else if( value_l > value_r )
+				TorsoTwist = -1;
+			else
+				TorsoTwist = (angle > 0.) ? 1 : -1;
 		}
 		
 		// Temporarily set the Mech's TorsoTwist before UpdateWeaponsInRange.
