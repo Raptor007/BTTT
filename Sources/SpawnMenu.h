@@ -60,6 +60,7 @@ class SpawnMenuSearchBox : public TextBox
 public:
 	SpawnMenuSearchBox( SDL_Rect *rect, Font *font, uint8_t align );
 	virtual ~SpawnMenuSearchBox();
+	bool MouseUp( Uint8 button = SDL_BUTTON_LEFT );
 	bool KeyDown( SDLKey key );
 	void Changed( void );
 };

@@ -89,7 +89,7 @@ void MechEquipment::Init( uint16_t eq_id, bool clan, uint16_t ammo )
 		ExplosionDamage = Weapon->ExplodeDamage;
 	}
 	
-	if( ID > 400 )
+	if( ID >= 451 )
 	{
 		Ammo = ammo;
 		std::map< short, HMWeapon >::const_iterator witer = weapons->find( ID - 400 );
@@ -340,7 +340,7 @@ uint8_t MechEquipment::ClusterHits( uint8_t roll, bool fcs, bool narc, bool ecm,
 	if( ! roll )
 		roll = Roll::Dice( 2 );  // FIXME: (Weapon->Type == HMWeapon::MISSILE_3D6) means what?
 	
-	if( mech->ActiveStealth )
+	if( mech->ActiveStealth )  // When the stealth armor system is engaged, the Mech suffers effects as if in the radius of an enemy ECM suite. [BattleMech Manual p.114]
 		ecm = true;
 	
 	uint8_t roll_bonus = 0;
@@ -368,7 +368,9 @@ uint8_t MechEquipment::ClusterHits( uint8_t roll, bool fcs, bool narc, bool ecm,
 		BattleTechServer *server = (BattleTechServer*) Raptor::Server;
 		Event e( mech );
 		
-		if( ecm )
+		if( mech->ActiveStealth )
+			e.Text = bonus_type + std::string(" cluster bonus prevented by stealth armor.");
+		else if( ecm )
 			e.Text = bonus_type + std::string(" cluster bonus blocked by ECM.");
 		else if( indirect && ! narc )
 			e.Text = bonus_type + std::string(" does not apply to indirect fire.");
@@ -1136,7 +1138,11 @@ void Mech::ClientInit( void )
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	
 	if( (game->State == BattleTech::State::SETUP) && ! game->Cfg.SettingAsBool("screensaver") )
-		game->Snd.Play( game->Res.GetSound("m_start.wav") );
+	{
+		if( game->SoundClock.ElapsedSeconds() > 0.01 )
+			game->Snd.Play( game->Res.GetSound("m_start.wav") );
+		game->SoundClock.Reset();
+	}
 	
 	InitTex();
 	
@@ -1756,15 +1762,6 @@ std::string Mech::ShortFullName( void ) const
 	if( Var.length() )
 		name += std::string(" ") + Var;
 	return name;
-}
-
-
-const Player *Mech::Owner( void ) const
-{
-	const Player *owner = Data->GetPlayer( PlayerID );
-	if( owner && (owner->PropertyAsInt("team") == Team) )
-		return owner;
-	return NULL;
 }
 
 
@@ -2788,7 +2785,7 @@ uint8_t Mech::PhysicalHitTable( uint8_t attack, const Mech *attacker ) const
 
 MechEquipment *Mech::FindAmmo( uint16_t eq_id )
 {
-	if( eq_id && (eq_id < 400) )
+	if( eq_id && (eq_id < 451) )
 		eq_id += 400;
 	
 	MechEquipment *ammo = NULL;
@@ -2822,7 +2819,7 @@ MechEquipment *Mech::FindAmmo( uint16_t eq_id )
 
 uint16_t Mech::TotalAmmo( uint16_t eq_id ) const
 {
-	if( eq_id && (eq_id < 400) )
+	if( eq_id && (eq_id < 451) )
 		eq_id += 400;
 	
 	uint16_t total = 0;
@@ -2880,7 +2877,14 @@ uint8_t Mech::ActiveProbeRange( void ) const
 	for( std::vector<MechEquipment>::const_iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
 	{
 		if( eq->Weapon && ! eq->Damaged && strstr( eq->Weapon->Name.c_str(), "Active Probe" ) && (eq->Weapon->RangeLong > range) )
+		{
+			// When the stealth armor system is engaged, the Mech suffers effects as if in the radius of an enemy ECM suite. [BattleMech Manual p.114]
+			// Bloodhound Active Probe is not defeated by regular ECM suites, only Angel ECM. [BattleMech Manual p.109]
+			if( ActiveStealth && (strstr( ECM->Name.c_str(), "Angel" ) || ! strstr( eq->Weapon->Name.c_str(), "Bloodhound" )) )
+				continue;
+			
 			range = eq->Weapon->RangeLong;
+		}
 	}
 	return range;
 }
@@ -2888,6 +2892,9 @@ uint8_t Mech::ActiveProbeRange( void ) const
 
 MechEquipment *Mech::AvailableAMS( uint8_t arc )
 {
+	if( Shutdown || (Unconscious == 2) )
+		return NULL;
+	
 	MechEquipment *ams = NULL;
 	for( std::vector<MechEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
 	{
@@ -3599,7 +3606,7 @@ uint8_t Mech::EnteredHexes( uint8_t speed ) const
 	{
 		uint8_t x, y;
 		GetPosition( &x, &y );
-		const HexMap *map = ((BattleTechGame*)( Raptor::Game ))->Map();
+		const HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
 		return map->HexDist( X, Y, x, y );
 	}
 	
@@ -3865,9 +3872,9 @@ void Mech::Draw( void )
 			else if( (move_progress < 1.) && (MoveEffect == BattleTech::Effect::JUMP) )
 			{
 				double height = sin( move_progress * M_PI );
-				up.ScaleBy(    1. + height * 0.1 );
-				right.ScaleBy( 1. + height * 0.1 );
-				h = powf( h, 1.f - (float) height * 0.7f );
+				up.ScaleBy(    1. + height * 0.15 );
+				right.ScaleBy( 1. + height * 0.15 );
+				h = powf( h, 1.f - (float) height * 0.4f ) + (float) height * 0.1f;
 			}
 			else if( (move_progress < 1.) && ((MoveEffect == BattleTech::Effect::LEFT_PUNCH) || (MoveEffect == BattleTech::Effect::RIGHT_PUNCH)) && upper )
 			{
@@ -3984,7 +3991,7 @@ void Mech::Draw( void )
 		}
 	}
 	
-	if( ECM && ! ECM->Damaged && ! Shutdown && ! Destroyed() && game->Cfg.SettingAsBool("show_ecm",true) )
+	if( ECM && ! ECM->Damaged && ! ActiveStealth && ! Shutdown && ! Destroyed() && game->Cfg.SettingAsBool("show_ecm",true) )
 	{
 		bool relevant_ecm = (game->Cfg.SettingAsString("show_ecm") == "all");
 		bool playing_events = game->PlayingEvents();

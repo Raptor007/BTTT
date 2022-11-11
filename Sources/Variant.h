@@ -38,7 +38,7 @@ public:
 	uint8_t Tons;
 	std::string Name, Var;
 	uint16_t Era, BV2;
-	bool Clan, Quad;
+	bool Clan, Quad, Stock;
 	uint8_t Walk, Jump;
 	bool MASC, TSM, Supercharger;
 	uint8_t Heatsinks;

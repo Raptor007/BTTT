@@ -48,6 +48,16 @@ public:
 };
 
 
+class RecordSheetClaimButton : public LabelledButton
+{
+public:
+	RecordSheetClaimButton( SDL_Rect *rect, Font *button_font, std::string text );
+	virtual ~RecordSheetClaimButton();
+	
+	void Clicked( Uint8 button = SDL_BUTTON_LEFT );
+};
+
+
 class RecordSheetLoc : public GroupBox
 {
 public:
@@ -80,6 +90,18 @@ public:
 	
 	RecordSheetStatus( SDL_Rect *rect, Font *title_font, Font *item_font = NULL );
 	virtual ~RecordSheetStatus();
+	
+	void Draw( void );
+};
+
+
+class RecordSheetMech : public GroupBox
+{
+public:
+	Font *ItemFont;
+	
+	RecordSheetMech( SDL_Rect *rect, Font *title_font, Font *item_font = NULL );
+	virtual ~RecordSheetMech();
 	
 	void Draw( void );
 };

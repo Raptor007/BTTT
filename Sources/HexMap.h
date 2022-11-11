@@ -50,6 +50,8 @@ public:
 	bool PartialCover;
 	bool LegWeaponsBlocked;
 	std::map<uint32_t,uint8_t> ECM;
+	uint8_t DamageFromX, DamageFromY;
+	Vec2D Offset;
 	
 	ShotPath( void );
 	virtual ~ShotPath();
@@ -69,6 +71,8 @@ public:
 	virtual ~HexMap();
 	
 	void SetSize( size_t w, size_t h );
+	void GetSize( size_t *w, size_t *h ) const;
+	void Clear( void );
 	void Randomize( uint32_t seed = time(NULL) % 9999 + 1 );
 	
 	void ClientInit( void );
@@ -96,7 +100,8 @@ public:
 	int HexDist( int x1, int y1, int x2, int y2 ) const;
 	double FloatDist( int x1, int y1, int x2, int y2 ) const;
 	bool LineCrosses( int ax, int ay, int bx, int by, int hx, int hy ) const;
-	ShotPath Path( int x1, int y1, int x2, int y2, int8_t h1 = 0, int8_t h2 = 0 ) const;
+	bool LineCrosses( const Pos3D *a, const Pos3D *b, int hx, int hy ) const;
+	ShotPath Path( int x1, int y1, int x2, int y2, int8_t h1 = 0, int8_t h2 = 0, const Vec2D *offset = NULL ) const;
 	int JumpCost( int x1, int y1, int x2, int y2 ) const;
 	
 	Mech *MechAt( int x, int y );

@@ -236,8 +236,7 @@ void Event::ReadStat( Mech *mech ) const
 	else if( (Stat == BattleTech::Stat::AMMO) && (Val1 >= 0) && ((size_t) Val1 < mech->Equipment.size()) )
 	{
 		MechEquipment *eq = &(mech->Equipment.at( Val1 ));
-		const uint8_t *val2 = (const uint8_t*) &Val2;
-		eq->Ammo = *val2;
+		eq->Ammo = Val2;
 	}
 	else if( (Stat == BattleTech::Stat::EQUIPMENT) && (Val1 >= 0) && ((size_t) Val1 < mech->Equipment.size()) )
 	{
@@ -277,6 +276,12 @@ void Event::ReadStat( Mech *mech ) const
 	{
 		for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
 			mech->Locations[ i ].Narced = Val1 & (1 << i);
+	}
+	else if( Stat == BattleTech::Stat::WEAPON_FIRED )
+	{
+		MechEquipment *eq = &(mech->Equipment.at( Val1 ));
+		eq->Fired += Val2;
+		mech->Heat += eq->Weapon->Heat * Val2;
 	}
 }
 

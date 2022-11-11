@@ -42,6 +42,10 @@ public:
 	int8_t TorsoTwist;
 	double ValueBonus;
 	
+	BotAIAim( void );
+	BotAIAim( Mech *from, const Mech *target, int state, const HexMap *map );
+	virtual ~BotAIAim();
+	
 	void Initialize( Mech *from, const Mech *target, int state, const HexMap *map );
 	void ChooseWeapons( void );
 	int16_t ShotHeat( void ) const;

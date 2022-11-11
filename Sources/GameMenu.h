@@ -24,6 +24,7 @@ class GameMenuSvDropDown;
 #include "Label.h"
 #include "DropDown.h"
 #include "CheckBox.h"
+#include "Clock.h"
 #include "SoundOut.h"
 
 
@@ -34,12 +35,14 @@ public:
 	LabelledButton *DefaultButton;
 	GameMenuSvCheckBox *Hotseat;
 	GameMenuSvDropDown *AITeam;
+	Clock RefreshClock;
 	
 	GameMenu( void );
 	virtual ~GameMenu();
 	void Draw( void );
 	bool KeyDown( SDLKey key );
 	bool MouseDown( Uint8 button );
+	GameMenu *Refresh( double delay = 0. );
 };
 
 
@@ -131,4 +134,16 @@ public:
 	GameMenuSvDropDown( SDL_Rect *rect, Font *font, std::string variable );
 	virtual ~GameMenuSvDropDown();
 	void Changed( void );
+};
+
+
+class GameMenuScenarioDropDown : public DropDown
+{
+public:
+	bool LoadedNames;
+	
+	GameMenuScenarioDropDown( SDL_Rect *rect, Font *font );
+	virtual ~GameMenuScenarioDropDown();
+	void Changed( void );
+	void Clicked( Uint8 button = SDL_BUTTON_LEFT );
 };

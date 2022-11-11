@@ -370,12 +370,12 @@ std::string HeavyMetal::CritName( short wid, const std::map< short, HMWeapon > *
 	if( wid == 0x00 )
 		return "(Roll Again)";
 	
-	if( wid == 0x1AF )
+	if( wid == 0x1AF ) // FIXME: (wid >= 0x1AF) && (wid < 451) are custom weapons stored in the variant file.
 		return "C3 Slave Unit";
 	
 	if( weapons )
 	{
-		if( wid > 400 )
+		if( wid >= 451 )
 		{
 			std::map< short, HMWeapon >::const_iterator witer = weapons->find( wid - 400 );
 			std::string name = (witer != weapons->end()) ? witer->second.AmmoName : "Ammo";
@@ -520,7 +520,7 @@ uint8_t HeavyMetal::CritSlots( short wid, bool clan, const std::map< short, HMWe
 {
 	if( wid == 0x00 )
 		return 0;
-	if( wid > 400 ) // Ammo
+	if( wid >= 451 ) // Ammo
 		return 1;
 	
 	if( weapons )

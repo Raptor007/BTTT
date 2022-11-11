@@ -135,7 +135,8 @@ namespace BattleTech
 			HEAT_ADD,
 			HEATSINKS,
 			ACTIVE_SPECIAL,
-			NARC
+			NARC,
+			WEAPON_FIRED
 		};
 	}
 	

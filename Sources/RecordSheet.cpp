@@ -37,11 +37,16 @@ RecordSheet::RecordSheet( const Mech *mech )
 	
 	rect.x = 10;
 	rect.y = TitleFont->GetHeight() + 7;
-	rect.w = (Rect.w - 30) / 2;
+	rect.w = 200;
 	rect.h = item_font->GetHeight() * 2 + 20;
 	AddElement( new RecordSheetStatus( &rect, head_font, item_font ) );
 	
 	rect.x += rect.w + 10;
+	rect.w = 90;
+	AddElement( new RecordSheetMech( &rect, head_font, item_font ) );
+	
+	rect.x += rect.w + 10;
+	rect.w = Rect.w - rect.x - 10;
 	AddElement( new RecordSheetPilot( &rect, head_font, item_font ) );
 	
 	rect.x = 10;
@@ -82,6 +87,14 @@ RecordSheet::RecordSheet( const Mech *mech )
 	rect.w = 16;
 	rect.h = 16;
 	AddElement( new RecordSheetCloseButton( &rect, head_font ) );
+	
+	if( (game->Data.Players.size() >= 2) && (! game->PlayingEvents()) && (! game->Hotseat()) && (mech->Team == game->MyTeam()) && ! game->BotControlsTeam(mech->Team) )
+	{
+		rect.w = 52;
+		rect.x = Rect.w - rect.w - 2;
+		std::string text = (mech && (mech->PlayerID == game->PlayerID)) ? "Unclaim" : "Claim";
+		AddElement( new RecordSheetClaimButton( &rect, head_font, text ) );
+	}
 }
 
 
@@ -194,6 +207,7 @@ void RecordSheet::Draw( void )
 		return;
 	}
 	
+	Alpha = IsTop() ? 0.75f : 0.66f;
 	Window::Draw();
 	
 	std::string title = mech->FullName();
@@ -252,6 +266,48 @@ void RecordSheetCloseButton::Clicked( Uint8 button )
 	{
 		RecordSheet *rs = (RecordSheet*) Container;
 		rs->Close();
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+
+
+RecordSheetClaimButton::RecordSheetClaimButton( SDL_Rect *rect, Font *button_font, std::string text )
+: LabelledButton( rect, button_font, text, Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
+{
+	Name = "RecordSheetClaimButton";
+	Red = 0.f;
+	Green = 0.f;
+	Blue = 0.f;
+	Alpha = 0.75f;
+}
+
+
+RecordSheetClaimButton::~RecordSheetClaimButton()
+{
+}
+
+
+void RecordSheetClaimButton::Clicked( Uint8 button )
+{
+	if( button == SDL_BUTTON_LEFT )
+	{
+		RecordSheet *rs = (RecordSheet*) Container;
+		Mech *mech = rs ? rs->GetMech() : NULL;
+		if( mech )
+		{
+			if( mech->PlayerID == Raptor::Game->PlayerID )
+			{
+				mech->PlayerID = 0;
+				LabelText = "Claim";
+			}
+			else
+			{
+				mech->PlayerID = Raptor::Game->PlayerID;
+				LabelText = "Unclaim";
+			}
+		}
 	}
 }
 
@@ -326,7 +382,7 @@ void RecordSheetLoc::Draw( void )
 		std::string name = eq->Name;
 		if( eq->WeaponArcs.count(BattleTech::Arc::REAR) && (eq->WeaponArcs.size() == 1) )
 			name += " (Rear)";
-		if( eq->ID > 400 )
+		if( eq->ID >= 451 )
 			name += std::string(" ") + Num::ToString(eq->Ammo);
 		if( eq->Jammed && ! destroyed && ! one_shot )
 			name += std::string(" [Jam]");
@@ -344,7 +400,7 @@ void RecordSheetLoc::Draw( void )
 				ItemFont->DrawText( name, 10, y, Font::ALIGN_MIDDLE_LEFT, 1.f,0.f,0.f,1.f );
 			else if( destroyed )
 				ItemFont->DrawText( name, 10, y, Font::ALIGN_MIDDLE_LEFT, 1.f,0.7f,0.7f,1.f );
-			else if( eq->Jammed || ((eq->ID > 400) && ! eq->Ammo) )
+			else if( eq->Jammed || ((eq->ID >= 451) && ! eq->Ammo) )
 				ItemFont->DrawText( name, 10, y, Font::ALIGN_MIDDLE_LEFT, 0.8f,0.8f,0.8f,1.f );
 			else
 				ItemFont->DrawText( name, 10, y, Font::ALIGN_MIDDLE_LEFT );
@@ -477,6 +533,38 @@ void RecordSheetStatus::Draw( void )
 	
 	if( mech->Shutdown )
 		ItemFont->DrawText( "Shutdown", 105, y, Font::ALIGN_TOP_LEFT, 1.f,1.f,0.f,1.f );
+}
+
+
+// -----------------------------------------------------------------------------
+
+
+RecordSheetMech::RecordSheetMech( SDL_Rect *rect, Font *title_font, Font *item_font )
+: GroupBox( rect, "Mech", title_font )
+{
+	Name = "RecordSheetMech";
+	ItemFont = item_font ? item_font : title_font;
+}
+
+
+RecordSheetMech::~RecordSheetMech()
+{
+}
+
+
+void RecordSheetMech::Draw( void )
+{
+	RecordSheet *rs = (RecordSheet*) Container;
+	Mech *mech = rs ? rs->GetMech() : NULL;
+	if( ! mech )
+		return;
+	
+	GroupBox::Draw();
+	
+	int y = 17;
+	ItemFont->DrawText( Num::ToString(mech->Tons) + std::string(mech->Quad ? " Ton Quad" : " Ton"), 10, y, Font::ALIGN_TOP_LEFT );
+	y += ItemFont->GetHeight();
+	ItemFont->DrawText( (mech->Clan ? "Clan" : "Inner Sphere"), 10, y, Font::ALIGN_TOP_LEFT );
 }
 
 

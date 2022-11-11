@@ -97,6 +97,8 @@ void ShotPath::Clear( void )
 	LineOfSight = true;
 	PartialCover = false;
 	LegWeaponsBlocked = false;
+	DamageFromX = 0;
+	DamageFromY = 0;
 }
 
 
@@ -153,6 +155,21 @@ void HexMap::SetSize( size_t w, size_t h )
 }
 
 
+void HexMap::GetSize( size_t *w, size_t *h ) const
+{
+	*w = Hexes.size();
+	*h = Hexes.size() ? Hexes.begin()->size() : 0;
+}
+
+
+void HexMap::Clear( void )
+{
+	size_t w, h;
+	GetSize( &w, &h );
+	SetSize( w, h );
+}
+
+
 void HexMap::Randomize( uint32_t seed )
 {
 	Seed = seed;
@@ -160,7 +177,7 @@ void HexMap::Randomize( uint32_t seed )
 	
 	// Generate a "biome" of random factors.
 	double tree1 = r.Double( 0.02, 0.03 );
-	double tree2 = r.Double( 0.15, 0.30 );
+	double tree2 = r.Double( 0.25, 0.30 );
 	double tree3 = r.Double( 0.10, 0.15 ) - tree1;
 	double hill1 = r.Double( 0.02, 0.10 );
 	double hill2 = r.Double( 0.55, 0.60 ) - hill1;
@@ -479,13 +496,19 @@ bool HexMap::LineCrosses( int ax, int ay, int bx, int by, int hx, int hy ) const
 {
 	Pos3D a = Center( ax, ay );
 	Pos3D b = Center( bx, by );
+	return LineCrosses( &a, &b, hx, hy );
+}
+
+
+bool HexMap::LineCrosses( const Pos3D *a, const Pos3D *b, int hx, int hy ) const
+{
 	Pos3D h = Center( hx, hy );
 	
 	// Don't bother checking any hex that's too far away for the line to touch.
 	// Rounded down to avoid "touching" a hex by only the gridline outside a corner.
 	// FIXME: This still matches some unnecessary corners at odd angles!
 	// The corner coordinates should contract if the line does not pass near 2 corners.
-	if( Math3D::PointToLineSegDist( &h, &a, &b ) > 0.5625 )
+	if( Math3D::PointToLineSegDist( &h, a, b ) > 0.5625 )
 		return false;
 	
 	// Edge coordinates are slightly padded to detect both hexes touched along an edge.
@@ -498,31 +521,28 @@ bool HexMap::LineCrosses( int ax, int ay, int bx, int by, int hx, int hy ) const
 	double y2 = h.Y;
 	double y3 = h.Y + 0.5001;
 	
-	if( Math2D::LineIntersection( x2, y1, x3, y1, a.X, a.Y, b.X, b.Y ) )
+	if( Math2D::LineIntersection( x2, y1, x3, y1, a->X, a->Y, b->X, b->Y ) )
 		return true;
-	if( Math2D::LineIntersection( x3, y1, x4, y2, a.X, a.Y, b.X, b.Y ) )
+	if( Math2D::LineIntersection( x3, y1, x4, y2, a->X, a->Y, b->X, b->Y ) )
 		return true;
-	if( Math2D::LineIntersection( x4, y2, x3, y3, a.X, a.Y, b.X, b.Y ) )
+	if( Math2D::LineIntersection( x4, y2, x3, y3, a->X, a->Y, b->X, b->Y ) )
 		return true;
-	if( Math2D::LineIntersection( x3, y3, x2, y3, a.X, a.Y, b.X, b.Y ) )
+	if( Math2D::LineIntersection( x3, y3, x2, y3, a->X, a->Y, b->X, b->Y ) )
 		return true;
-	if( Math2D::LineIntersection( x2, y3, x1, y2, a.X, a.Y, b.X, b.Y ) )
+	if( Math2D::LineIntersection( x2, y3, x1, y2, a->X, a->Y, b->X, b->Y ) )
 		return true;
-	if( Math2D::LineIntersection( x1, y2, x2, y1, a.X, a.Y, b.X, b.Y ) )
+	if( Math2D::LineIntersection( x1, y2, x2, y1, a->X, a->Y, b->X, b->Y ) )
 		return true;
 	
 	return false;
 }
 
 
-ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) const
+ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2, const Vec2D *offset ) const
 {
 	ShotPath path;
-	std::set<HexTouch> touched;
-	
-	// Prone Mechs cannot fire leg weapons.
-	if( h1 == 1 )
-		path.LegWeaponsBlocked = true;
+	path.DamageFromX = x1;
+	path.DamageFromY = y1;
 	
 	// If either point is invalid, return an empty path.
 	if( !(Valid( x1, y1 ) && Valid( x2, y2 )) )
@@ -537,30 +557,153 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 	const Hex *here = &(Hexes[ x1 ][ y1 ]);
 	path.push_back( here );
 	
-	// If start and end point are the same, return a single hex path.
-	if( (x1 == x2) && (y1 == y2) )
-		return path;
+	const Mech *m1 = MechAt_const( x1, y1 );
+	const Mech *m2 = MechAt_const( x2, y2 );
 	
 	// If we didn't specify line-of-sight height, determine automatically from Mechs on map.
 	if( ! h1 )
 	{
 		h1 = 2;
-		const Mech *m = MechAt_const( x1, y1 );
-		if( m && m->Prone )
+		if( m1 && m1->Prone )
 			h1 = 1;
 	}
 	if( ! h2 )
 	{
 		h2 = 2;
-		const Mech *m = MechAt_const( x2, y2 );
-		if( m && m->Prone )
+		if( m2 && m2->Prone )
 			h2 = 1;
 	}
 	
+	// Prone Mechs cannot fire leg weapons.
+	if( h1 == 1 )
+		path.LegWeaponsBlocked = true;
+	
+	// If start and end point are the same, return a single hex path.
+	if( (x1 == x2) && (y1 == y2) )
+		return path;
+	
 	const Hex *dest = &(Hexes[ x2 ][ y2 ]);
+	
+	if( ! offset )
+	{
+		// If shot path touches two hexes adjacent to either end hex, LOS is exactly between two hexes.
+		std::map<uint8_t,const Hex*> adjacent = Adjacent_const( dest->X, dest->Y );
+		std::set<const Hex*> touched;
+		for( std::map<uint8_t,const Hex*>::const_iterator adj_iter = adjacent.begin(); adj_iter != adjacent.end(); adj_iter ++ )
+		{
+			if( adj_iter->second && LineCrosses( x1, y1, x2, y2, adj_iter->second->X, adj_iter->second->Y ) )
+				touched.insert( adj_iter->second );
+		}
+		if( touched.size() == 2 )
+		{
+			// LOS Exactly Between Two Hexes: Decide which alternate path is better for the defender. [BattleMech Manual p.22]
+			
+			Vec2D vec = dest->Center() - here->Center();
+			vec.ScaleTo( 0.1 );
+			vec.Rotate( 90. );
+			ShotPath alt1 = Path( x1, y1, x2, y2, h1, h2, &vec );
+			vec *= -1.;
+			ShotPath alt2 = Path( x1, y1, x2, y2, h1, h2, &vec );
+			uint8_t arc1 = BattleTech::Arc::FRONT, arc2 = BattleTech::Arc::FRONT;
+			if( m2 )
+			{
+				arc1 = m2->DamageArc( alt1.DamageFromX, alt1.DamageFromY );
+				arc2 = m2->DamageArc( alt2.DamageFromX, alt2.DamageFromY );
+			}
+			
+			// Most important is to avoid being hit.
+			if( alt1.LineOfSight && ! alt2.LineOfSight )
+				return alt2;
+			if( alt2.LineOfSight && ! alt1.LineOfSight )
+				return alt1;
+			// FIXME: There are probably cases where the incoming arc is more important than the modifier.
+			if( alt1.Modifier > alt2.Modifier )
+				return alt1;
+			if( alt2.Modifier > alt1.Modifier )
+				return alt2;
+			
+			// Prefer rear arc (or not) by comparing total front to rear torso armor.
+			// FIXME: Should partial cover be checked first if legs have less remaining armor than rear torso?
+			if( arc1 == BattleTech::Arc::REAR )
+			{
+				uint16_t front = m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor     + m2->Locations[ BattleTech::Loc::LEFT_TORSO ].Armor     + m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].Armor;
+				uint16_t rear  = m2->Locations[ BattleTech::Loc::CENTER_TORSO ].RearArmor + m2->Locations[ BattleTech::Loc::LEFT_TORSO ].RearArmor + m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].RearArmor;
+				if( front > rear )
+					return alt2;
+				if( rear > front )
+					return alt1;
+			}
+			if( arc2 == BattleTech::Arc::REAR )
+			{
+				uint16_t front = m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor     + m2->Locations[ BattleTech::Loc::LEFT_TORSO ].Armor     + m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].Armor;
+				uint16_t rear  = m2->Locations[ BattleTech::Loc::CENTER_TORSO ].RearArmor + m2->Locations[ BattleTech::Loc::LEFT_TORSO ].RearArmor + m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].RearArmor;
+				if( front > rear )
+					return alt1;
+				if( rear > front )
+					return alt2;
+			}
+			
+			// Prefer the alternate path with partial cover.
+			if( alt1.PartialCover && ! alt2.PartialCover )
+				return alt1;
+			if( alt2.PartialCover && ! alt1.PartialCover )
+				return alt2;
+			
+			// Prefer side arc (or not) by comparing that side's front armor to center torso.
+			// FIXME: Should these also consider that side's arm and leg armor?
+			if( (arc1 == BattleTech::Arc::LEFT_SIDE) && (arc2 != BattleTech::Arc::REAR) )
+			{
+				if( m2->Locations[ BattleTech::Loc::LEFT_TORSO ].Armor > m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt1;
+				if( m2->Locations[ BattleTech::Loc::LEFT_TORSO ].Armor < m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt2;
+			}
+			if( (arc1 == BattleTech::Arc::RIGHT_SIDE) && (arc2 != BattleTech::Arc::REAR) )
+			{
+				if( m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].Armor > m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt1;
+				if( m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].Armor < m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt2;
+			}
+			if( (arc2 == BattleTech::Arc::LEFT_SIDE) && (arc1 != BattleTech::Arc::REAR) )
+			{
+				if( m2->Locations[ BattleTech::Loc::LEFT_TORSO ].Armor > m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt2;
+				if( m2->Locations[ BattleTech::Loc::LEFT_TORSO ].Armor < m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt1;
+			}
+			if( (arc2 == BattleTech::Arc::RIGHT_SIDE) && (arc1 != BattleTech::Arc::REAR) )
+			{
+				if( m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].Armor > m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt2;
+				if( m2->Locations[ BattleTech::Loc::RIGHT_TORSO ].Armor < m2->Locations[ BattleTech::Loc::CENTER_TORSO ].Armor )
+					return alt1;
+			}
+			
+			// Final tie-breaker is to prefer front arc.
+			if( arc1 == BattleTech::Arc::REAR )
+				return alt2;
+			if( arc2 == BattleTech::Arc::REAR )
+				return alt1;
+			if( (arc1 == BattleTech::Arc::LEFT_SIDE) || (arc1 == BattleTech::Arc::RIGHT_SIDE) )
+				return alt2;
+			return alt1;
+		}
+	}
+	else
+		path.Offset.Set( offset->X, offset->Y );
+	
 	int8_t here_height = here->Height + h1;
 	int8_t dest_height = dest->Height + h2;
 	int8_t mid_height = std::max<int8_t>( here_height, dest_height );
+	std::set<HexTouch> touched;
+	Pos3D a = Center( x1, y1 );
+	Pos3D b = Center( x2, y2 );
+	if( offset )
+	{
+		a += offset;
+		b += offset;
+	}
 	
 	// Find all intervening hexes touched by the line.
 	for( std::vector< std::vector<Hex> >::const_iterator col = Hexes.begin(); col != Hexes.end(); col ++ )
@@ -571,7 +714,7 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 			if( (&*hex == here) || (&*hex == dest) )
 				continue;
 			
-			if( LineCrosses( x1, y1, x2, y2, hex->X, hex->Y ) )
+			if( LineCrosses( &a, &b, hex->X, hex->Y ) )
 			{
 				// Check height against higher of start/end unless adjacent to one of them.
 				size_t here_dist = HexDist( hex->X, hex->Y, x1, y1 );
@@ -602,14 +745,11 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 				uint8_t forest = (hex->Height + 2 >= los_height) ? hex->Forest : 0;
 				
 				// Keep track of any hexes with ECM coverage.
-				// FIXME: If this match is along the hex edge and we keep the other hex for better defense, this hex's ECM should not apply.
 				std::set<const Mech*> mech_ecms = MechECMsAt( hex->X, hex->Y );
 				for( std::set<const Mech*>::const_iterator ecm = mech_ecms.begin(); ecm != mech_ecms.end(); ecm ++ )
 					path.ECM[ (*ecm)->ID ] = (*ecm)->Team;
 				
-				// Only mark hexes along the path that interfere with line-of-sight.
-				if( forest || cover )
-					touched.insert( HexTouch( &*hex, forest, cover ) );
+				touched.insert( HexTouch( &*hex, forest, cover ) );
 			}
 		}
 	}
@@ -634,22 +774,6 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 			if( h == t )
 				continue;
 			double td = FloatDist( t->HexPtr->X, t->HexPtr->Y, x2, y2 );
-			
-			if( fabs( td - hd ) < 0.01 )
-			{
-				// Two possible intervening hexes along an edge; keep the better defensive bonus.
-				std::set<HexTouch>::const_iterator rem = (h->Cover + h->Forest > t->Cover + t->Forest) ? t : h;
-				if( (h->Cover >= 2) && (t->Cover < 2) )
-					rem = t;
-				else if( (t->Cover >= 2) && (h->Cover < 2) )
-					rem = h;
-				
-				// When we remove a tie hex, start over looking for the farthest from dest.
-				touched.erase( rem );
-				h = touched.end();
-				break;
-			}
-			
 			if( td > hd )
 			{
 				h = t;
@@ -672,7 +796,14 @@ ShotPath HexMap::Path( int x1, int y1, int x2, int y2, int8_t h1, int8_t h2 ) co
 			else if( h->Cover )
 				path.PartialCover = true;
 			
-			path.push_back( h->HexPtr );
+			// Only mark hexes along the path that interfere with line-of-sight.
+			if( h->Forest || h->Cover )
+				path.push_back( h->HexPtr );
+			
+			// For incoming damage arc, keep track of the last hex passed through before reaching the target.
+			path.DamageFromX = h->HexPtr->X;
+			path.DamageFromY = h->HexPtr->Y;
+			
 			touched.erase( h );
 		}
 	}
@@ -865,6 +996,7 @@ std::set<const Mech*> HexMap::MechECMsAt( int x, int y ) const
 			const Mech *mech = (Mech*) obj_iter->second;
 			
 			if( mech->ECM && ! mech->ECM->Damaged
+			&&  ! mech->ActiveStealth  // When the stealth armor system is engaged, the ECM does not function. [BattleMech Manual p.114]
 			&&  ! mech->Shutdown && ! mech->Destroyed()
 			&&  (HexDist( x, y, mech->X, mech->Y ) <= 6) )
 				ecm_mechs.insert( mech );

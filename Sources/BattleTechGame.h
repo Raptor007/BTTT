@@ -31,6 +31,7 @@ public:
 	uint32_t SelectedID, TargetID;
 	std::queue< Event > Events;
 	Clock EventClock;
+	Clock SoundClock;
 	
 	BattleTechGame( std::string version );
 	virtual ~BattleTechGame();
@@ -43,6 +44,8 @@ public:
 	size_t LoadVariants( std::string dir );
 	bool HasMechTex( std::string name ) const;
 	void Precache( void );
+	
+	std::map< std::string, const Variant* > VariantSearch( std::string text, bool search_equipment = true ) const;
 	
 	void Update( double dt );
 	void PlayEvent( const Event *e );

@@ -4,11 +4,16 @@
 
 #include "GameMenu.h"
 
+#include <dirent.h>
+#include <fstream>
 #include "BattleTechGame.h"
 #include "GroupBox.h"
 #include "Num.h"
 #include "HexBoard.h"
 #include "SpawnMenu.h"
+#ifndef DT_DIR
+#include <sys/stat.h>
+#endif
 
 
 GameMenu::GameMenu( void )
@@ -126,6 +131,12 @@ GameMenu::GameMenu( void )
 		group->AddElement( biome );
 		rect.y += rect.h + SPACING;
 		
+		if( Raptor::Game->State <= BattleTech::State::SETUP )
+		{
+			group->AddElement( new GameMenuScenarioDropDown( &rect, ItemFont ) );
+			rect.y += rect.h + SPACING;
+		}
+		
 		group->SizeToElements();
 		group->Rect.w = group_rect.w;
 		group_rect.y += group->Rect.h + 10;
@@ -240,6 +251,24 @@ GameMenu::~GameMenu()
 
 void GameMenu::Draw( void )
 {
+	if( RefreshClock.CountUpToSecs && (RefreshClock.Progress() >= 1.) )
+	{
+		GameMenu *gm = Refresh();
+		gm->Draw();
+		return;
+	}
+	
+	bool is_top = IsTop();
+	if( ! is_top )
+	{
+		const Layer *top = Raptor::Game->Layers.TopLayer();
+		if( top && ! top->Name.length() )  // FIXME: Hack for DropDownListBox.
+			is_top = true;
+	}
+	Alpha = is_top ? 0.75f : 0.66f;
+	if( DefaultButton )
+		DefaultButton->Blue = is_top ? 0.5f : 0.f;
+	
 	Window::Draw();
 	ItemFont->DrawText( "BTTT: BattleTech TableTop", Rect.w/2 + 2, 7, Font::ALIGN_TOP_CENTER, 0,0,0,0.8f );
 	ItemFont->DrawText( "BTTT: BattleTech TableTop", Rect.w/2,     5, Font::ALIGN_TOP_CENTER );
@@ -251,15 +280,16 @@ bool GameMenu::KeyDown( SDLKey key )
 	HexBoard *hex_board = (HexBoard*) Raptor::Game->Layers.Find("HexBoard");
 	if( hex_board && (hex_board->Selected == hex_board->MessageInput) )
 		return false;
-	else if( key == SDLK_ESCAPE )
+	else if( (key == SDLK_ESCAPE) || (key == SDLK_F10) )
 		Remove();
-	else if( key == SDLK_TAB )
+	else if( DefaultButton && ((key == SDLK_RETURN) || (key == SDLK_KP_ENTER)) && IsTop() )
 	{
-		Remove();
-		return false;
-	}
-	else if( DefaultButton && ((key == SDLK_RETURN) || (key == SDLK_KP_ENTER)) )
+		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+		const Mech *selected = game->SelectedMech();
+		if( selected && selected->Steps.size() )
+			return false;
 		DefaultButton->Clicked();
+	}
 	else
 		return false;
 	return true;
@@ -272,6 +302,25 @@ bool GameMenu::MouseDown( Uint8 button )
 		MoveToTop();
 	
 	return true;
+}
+
+
+GameMenu *GameMenu::Refresh( double delay )
+{
+	if( delay )
+	{
+		RefreshClock.Reset( delay );
+		return NULL;
+	}
+	else
+	{
+		GameMenu *gm = new GameMenu();
+		Raptor::Game->Layers.Add( gm );
+		gm->Rect.x = Rect.x;
+		gm->Rect.y = Rect.y;
+		Remove();
+		return gm;
+	}
 }
 
 
@@ -611,6 +660,112 @@ void GameMenuSvDropDown::Changed( void )
 		if( gm->AITeam->FindItem(gm->AITeam->Value) < 0 )
 			gm->AITeam->Select( 0 );
 	}
-	else if( gm && gm->Hotseat && gm->Hotseat->Checked && (teams == 2) && (Variable == "ai_team") && Str::AsInt(Value) )
-		gm->Hotseat->Clicked();  // FIXME: Prevent double sound.
+	else if( gm && (Variable == "ai_team") )
+	{
+		if( gm->Hotseat && gm->Hotseat->Checked && (teams == 2) && Str::AsInt(Value) )
+			gm->Hotseat->Clicked();  // FIXME: Prevent double sound.
+		/*
+		if( Container && Container->Container && (Container->Container->Name == "GameMenu") )
+			((GameMenu*)( Container->Container ))->Refresh( 0.3 );
+		*/
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+
+
+GameMenuScenarioDropDown::GameMenuScenarioDropDown( SDL_Rect *rect, Font *font )
+: DropDown( rect, font, Font::ALIGN_MIDDLE_CENTER, 0, NULL, NULL )
+{
+	Red = 0.f;
+	Green = 0.f;
+	Blue = 0.f;
+	Alpha = 0.75f;
+	
+	LoadedNames = false;
+	
+	AddItem( "", "Load Scenario..." );
+	if( DIR *dir_p = opendir("Scenarios") )
+	{
+		while( struct dirent *dir_entry_p = readdir(dir_p) )
+		{
+			if( ! dir_entry_p->d_name )
+				continue;
+			if( dir_entry_p->d_name[ 0 ] == '.' )
+				continue;
+			AddItem( dir_entry_p->d_name, dir_entry_p->d_name );
+		}
+		closedir( dir_p );
+	}
+	Select( "" );
+	
+	if( Items.size() == 1 )
+	{
+		Enabled = false;
+		AlphaNormal = AlphaOver = 0.5;
+	}
+}
+
+
+GameMenuScenarioDropDown::~GameMenuScenarioDropDown()
+{
+}
+
+
+void GameMenuScenarioDropDown::Changed( void )
+{
+	if( ! Value.empty() )
+	{
+		Raptor::Game->Cfg.Command( std::string("exec \"Scenarios/") + Value + std::string("\"") );
+		
+		Player *player = Raptor::Game->Data.GetPlayer( Raptor::Game->PlayerID );
+		if( player )
+		{
+			Packet message = Packet( Raptor::Packet::MESSAGE );
+			message.AddString( player->Name + std::string(" loaded scenario: ") + LabelText );
+			message.AddUInt( TextConsole::MSG_NORMAL );
+			Raptor::Game->Net.Send( &message );
+		}
+		
+		Select( "" );
+		
+		if( Container && Container->Container && (Container->Container->Name == "GameMenu") )
+			((GameMenu*)( Container->Container ))->Refresh( 0.3 );
+	}
+}
+
+
+void GameMenuScenarioDropDown::Clicked( Uint8 button )
+{
+	if( (button == SDL_BUTTON_WHEELUP) || (button == SDL_BUTTON_WHEELDOWN) )
+		return;
+	
+	if( ! LoadedNames )
+	{
+		for( std::vector<ListBoxItem>::iterator item = Items.begin(); item != Items.end(); item ++ )
+		{
+			if( item->Value.empty() )
+				continue;
+			
+			std::ifstream input( (std::string("Scenarios/") + item->Value).c_str() );
+			if( input.is_open() && ! input.eof() )
+			{
+				char buffer[ 1024 ] = "";
+				input.getline( buffer, sizeof(buffer) );
+				if( (buffer[0] == '/') && (buffer[1] == '/') )
+				{
+					const char *name = buffer + 2;
+					while( (*name == ' ') || (*name == '\t') )
+						name ++;
+					if( strlen(name) )
+						item->Text = name;
+				}
+			}
+		}
+		
+		LoadedNames = true;
+	}
+	
+	DropDown::Clicked( button );
 }

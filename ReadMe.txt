@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|            0.9.6 Beta (2022-07-07)            |
+|            0.9.7 Beta (2022-11-11)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -40,10 +40,10 @@ Game Settings / Optional Rules:
 Getting Started:
 * After hosting or joining a game, click the Team/Mech button.
 * Select your team on the left, and your BattleMech variant on the right.
-* Right-click on the map to spawn your selected Mech.  You can turn and move with the
+* Right-click on the map to drop your selected Mech.  You can turn and move with the
   arrow keys during this Setup phase, and press Enter to commit a new starting position.
 * If you want to remove your Mech, press Del or Shift-Backspace to eject.
-* If playing Hotseat or vs AI, press Tab to change teams and spawn the other Mech(s).
+* If playing Hotseat or vs AI, press Tab to change teams and drop the other Mech(s).
 * When everyone is ready, the host should press Enter or Esc and click Initiate Combat.
 
 Gameplay Controls:
@@ -71,7 +71,6 @@ Known Issues:
 * Cannot choose HE or ER ammo for ATM.
 * Cannot choose cluster ammo for LB-X AC.
 * Ammo should be consumed at attack declaration, not resolution. [BattleMech Manual p.31]
-* Declared attacks do not show which weapons were selected.
 * Multiple attack target selection is not implemented.
 * Aimed shots are not implemented. [BattleMech Manual p.30]
 * Club, push, charge, and DFA physical attacks are not implemented.
@@ -93,8 +92,9 @@ Known Issues:
 * Command Couch (backup pilot) is not implemented.
 * Turret weapons are not implemented; they only fire forward.
 * C3 networks are not implemented.
+* When a team has fewer Mechs than 2+ other teams, other teams should interleave turns.
 * Only teammates should be able to indirect fire at spotted targets (when 3+ teams).
-* Not all included Mechs look correct (but you can add them to MechTex.ini).
+* Not all included Mechs look correct (but you can edit MechTex.ini to improve them).
 
 Troubleshooting:
 * Windows shows blank textures (white boxes).
@@ -114,8 +114,8 @@ Frequently Asked Questions (FAQ):
 * How do I set up a game against the computer?
  - First select which team you would like the AI to control from the main menu.  Then
    press Tab to bring up the Team/Mech menu, switch to the AI team, and right-click to
-   spawn Mechs for them.  Then press Tab again, switch to your team, and spawn your
-   Mechs.  Finally press Return to bring up the main menu, and Return again to start.
+   drop Mechs for them.  Then switch to your team, and drop your Mechs.  Finally press
+   F10 to bring up the main menu, then press Return or click "Initiate Combat".
 * How does BTTT compare to MegaMek?
  - I have not used MegaMek because it requires Java.  But I can see from the tutorial
    videos that it is an impressive effort to implement nearly every feature described
@@ -135,6 +135,22 @@ Frequently Asked Questions (FAQ):
    You would probably need to ditch my SDL 1.2 bindings for SDL2, rework a few older GL
    calls that are not available in OpenGLES, and replace keyboard controls with touch.
 
+Version 0.9.7 Beta (2022-11-11):
+* Aiming exactly along hex edge now chooses one alternate path. [BattleMech Manual p.22]
+* Mech variant search box now also searches equipment, era, and other properties.
+* Scenario files can now be used to more quickly set up games.  Try making your own!
+* Fixed punch attacks available for Mech after another player fired its arm weapons.
+* Fixed AI-controlled Mechs using torso twist while prone.
+* Fixed loud startup sound when joining a game that already has many Mechs.
+* Fixed crash in dedicated servers when an AI-controlled Mech uses jump jets.
+* Some improvements to AI.  They are less likely to get stuck and use NARC smarter.
+* Increased probability of heavy woods in random map generation.
+* Attack resolution now skips Mechs that declared 0 weapons to fire.
+* Various minor UI improvements.  F9-F11 toggle menus.  Record sheets now show tonnage.
+* Tweaked some animations to look better.  Mechs no longer step beneath friendlies.
+* When the battle ends, Betty now announces mission successful or failed.
+* Moved custom designs to "Mechs (Disabled)".  Move them to "Mechs" to display in menu.
+* Defined texture data for every included stock Mech, though some could use improvement.
 Version 0.9.6 Beta (2022-07-07):
 * The new Biome setting changes map colors, and you can edit MapBiome.ini to customize.
 * Clicking any Mech that has declared attacks now shows the attacks and to-hit rolls.

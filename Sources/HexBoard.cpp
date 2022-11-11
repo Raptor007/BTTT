@@ -169,7 +169,7 @@ void HexBoard::Draw( void )
 			{
 				r = 1.0f;
 				b = 0.0f;
-				if( target && ((target->Spotted < 99) || ( target->Narced() && ! Path.ECMvsTeam(selected->Team) )) )
+				if( target && ((target->Spotted < 99) || ( target->Narced() && ! Path.ECMvsTeam(selected->Team) && ! selected->ActiveStealth )) )
 					g = 0.9f;
 			}
 			if( target && (selected->DeclaredTarget == target->ID) )
@@ -185,8 +185,8 @@ void HexBoard::Draw( void )
 			}
 			if( Path.size() >= 2 )
 			{
-				Pos3D here = (*(Path.begin()))->Center();
-				Pos3D dest = (*(Path.rbegin()))->Center();
+				Pos3D here = (*(Path.begin()))->Center() + Path.Offset;
+				Pos3D dest = (*(Path.rbegin()))->Center() + Path.Offset;
 				game->Gfx.DrawLine2D( here.X, here.Y, dest.X, dest.Y, 2.f, r,g,b,a*0.9f );
 			}
 		}
@@ -203,6 +203,10 @@ void HexBoard::Draw( void )
 		{
 			Mech *mech = (Mech*) obj_iter->second;
 			if( mech->MoveClock.Progress() < 1. )
+				draw_order[ 6 ].push_back( mech );
+			else if( mech->MoveClock.ElapsedSeconds() < 0.5 )
+				draw_order[ 5 ].push_back( mech );
+			else if( mech->ID == game->SelectedID )
 				draw_order[ 4 ].push_back( mech );
 			else if( ! mech->Destroyed() )
 				draw_order[ 3 ].push_back( mech );
@@ -212,7 +216,7 @@ void HexBoard::Draw( void )
 				draw_order[ 1 ].push_back( mech );
 		}
 		else
-			draw_order[ 5 ].push_back( obj_iter->second );
+			draw_order[ 7 ].push_back( obj_iter->second );
 	}
 	
 	for( std::map< uint8_t, std::vector<GameObject*> >::iterator draw = draw_order.begin(); draw != draw_order.end(); draw ++ )
@@ -356,6 +360,7 @@ void HexBoard::Draw( void )
 	}
 	
 	std::string status;
+	float r = 1.f, g = 1.f, b = 1.f;
 	if( (game->State != BattleTech::State::SETUP) && playing_events )
 	{
 		for( std::deque<TextConsoleMessage*>::reverse_iterator msg = game->Console.Messages.rbegin(); msg != game->Console.Messages.rend(); msg ++ )
@@ -370,6 +375,11 @@ void HexBoard::Draw( void )
 	else if( Selected == MessageInput )
 	{
 		status = "Press Enter to send chat message or Esc to cancel.";
+	}
+	else if( (game->State >= BattleTech::State::MOVEMENT) && game->TeamTurn && game->BotControlsTeam(game->TeamTurn) )
+	{
+		status = game->TeamName(game->TeamTurn) + std::string(" is thinking.");
+		r = fabsf(sinf( game->EventClock.ElapsedSeconds() * M_PI ));
 	}
 	else if( (game->State == BattleTech::State::MOVEMENT) && selected && selected->Ready() && (selected->Team == game->TeamTurn) && (game->TeamTurn == my_team) )
 	{
@@ -389,7 +399,10 @@ void HexBoard::Draw( void )
 		else if( step_cost )
 			status += std::string(" moved ") + Num::ToString(step_cost) + std::string(" of ");
 		else
+		{
 			status += " can move ";
+			b = fabsf(sinf( game->EventClock.ElapsedSeconds() * M_PI ));
+		}
 		
 		status += selected->MPString( selected->MoveSpeed );
 		
@@ -423,7 +436,10 @@ void HexBoard::Draw( void )
 		}
 		
 		if( selected->Shutdown || selected->Unconscious )
+		{
 			status = selected->ShortName() + std::string(" cannot move this turn.  Press Enter to skip.");
+			b = fabsf(sinf( game->EventClock.ElapsedSeconds() * M_PI ));
+		}
 		else if( selected->StandAttempts && (! selected->Prone) && (selected->WalkDist() == 1) )
 			status = selected->ShortName() + std::string(" stood using Minimum Movement rule.");
 		
@@ -442,14 +458,20 @@ void HexBoard::Draw( void )
 		{
 			status = selected->ShortName() + std::string(" cannot ") + game->PhaseName() + std::string(" this turn.");
 			if( (game->State == BattleTech::State::MOVEMENT) || (game->State == BattleTech::State::WEAPON_ATTACK) )
+			{
 				status += std::string("  Press Enter to skip.");
+				b = fabsf(sinf( game->EventClock.ElapsedSeconds() * M_PI ));
+			}
 		}
 		else if( target && Path.LineOfSight && (WeaponsInRange.size() || (game->State == BattleTech::State::PHYSICAL_ATTACK)) )
 			status = std::string("Press Enter to submit ") + game->PhaseName() + std::string(" target: ") + target->ShortName();
 		else if( Path.size() )
 			status = std::string("Press Enter to skip ") + game->PhaseName() + std::string(" (no target).");
 		else
+		{
 			status = std::string("Right-click target for ") + game->PhaseName() + std::string(", or press Enter to skip.");
+			b = fabsf(sinf( game->EventClock.ElapsedSeconds() * M_PI ));
+		}
 	}
 	else if( (game->State == BattleTech::State::SETUP) || ! playing_events )
 	{
@@ -459,7 +481,10 @@ void HexBoard::Draw( void )
 		if( game->TeamTurn && my_team )
 		{
 			if( (game->TeamTurn == my_team) && ! hotseat )
+			{
 				status += " (your team)";
+				b = fabsf(sinf( game->EventClock.ElapsedSeconds() * M_PI ));
+			}
 			else if( (game->TeamsAlive() <= 2) && ! hotseat )
 				status += " (enemy team)";
 			else
@@ -467,6 +492,8 @@ void HexBoard::Draw( void )
 				std::string team_name = game->TeamName( game->TeamTurn );
 				if( ! team_name.empty() )
 					status += std::string(" (") + team_name + std::string(")");
+				if( hotseat )
+					b = fabsf(sinf( game->EventClock.ElapsedSeconds() * M_PI ));
 			}
 		}
 		else if( game->State == BattleTech::State::SETUP )
@@ -491,9 +518,9 @@ void HexBoard::Draw( void )
 					if( ai && game->BotControlsTeam(my_team) && (game->Data.PropertyAsInts("ai_team").size() == 1) )
 						status = "Change to a non-AI team when ready to play.";
 					else if( game->Data.PropertyAsInt("mech_limit") == 1 )
-						status = "Right-click to move drop point, or press Enter when done.";
+						status = "Right-click to move drop point, or press F10 when done.";
 					else
-						status = "Right-click to drop more Mechs, or press Enter when done.";
+						status = "Right-click to drop more Mechs, or press F10 when done.";
 				}
 				else if( ai && (! ready_to_begin) && game->MyMech() )
 				{
@@ -514,10 +541,10 @@ void HexBoard::Draw( void )
 				if( game->BotControlsTeam(my_team) && (game->Data.PropertyAsInts("ai_team").size() == 1) )
 					status = "Press Tab to switch back to your own team.";
 				else
-					status = "When everyone is ready to play, press Enter.";
+					status = "When everyone is ready to play, press F10.";
 			}
 			else if( (hotseat || ai) && game->MyMech() )
-				status = "Press Tab to drop Mechs for the other team.  When done, press Enter.";
+				status = "Press Tab to drop Mechs for the other team.  When done, press F10.";
 			else if( game->MyMech() )
 				status = "Use arrows to move drop point and Enter to submit.";
 			else if( my_team )
@@ -527,7 +554,7 @@ void HexBoard::Draw( void )
 		}
 	}
 	TurnFont->DrawText( status, Rect.w/2 + 2, Rect.h,     Font::ALIGN_BOTTOM_CENTER, 0,0,0,0.8f );
-	TurnFont->DrawText( status, Rect.w/2,     Rect.h - 2, Font::ALIGN_BOTTOM_CENTER );
+	TurnFont->DrawText( status, Rect.w/2,     Rect.h - 2, Font::ALIGN_BOTTOM_CENTER, r,g,b,1.0f );
 }
 
 
@@ -669,14 +696,19 @@ bool HexBoard::MouseDown( Uint8 button )
 			}
 			game->Console.Print( std::string("Spawning: ") + mech->first );
 			mech->second.AddToPacket( &spawn_mech );
-			uint8_t piloting = game->Cfg.SettingAsInt( "piloting", mech->second.Clan ? 4 : 5 );
-			uint8_t gunnery  = game->Cfg.SettingAsInt( "gunnery",  mech->second.Clan ? 3 : 4 );
-			spawn_mech.AddUChar( piloting );
-			spawn_mech.AddUChar( gunnery );
+			int8_t piloting = game->Cfg.SettingAsInt( "piloting", mech->second.Clan ? 4 : 5 );
+			int8_t gunnery  = game->Cfg.SettingAsInt( "gunnery",  mech->second.Clan ? 3 : 4 );
+			spawn_mech.AddChar( piloting );
+			spawn_mech.AddChar( gunnery );
 			game->Net.Send( &spawn_mech );
 			
-			// Close the SpawnMenu after we drop a 'Mech so we can use arrow keys to move it.
-			RemoveSetupMenus();
+			GameMenu *gm = (GameMenu*) game->Layers.Find("GameMenu");
+			if( gm )
+				gm->Refresh( 0.3 );
+			
+			SpawnMenu *sm = (SpawnMenu*) game->Layers.Find("SpawnMenu");
+			if( sm && sm->SearchBox && sm->SearchBox->Container )
+				sm->SearchBox->Container->Selected = NULL;
 		}
 		// Prevent trying other targets when a Mech has already declared its shot.
 		else if( (game->State >= BattleTech::State::TAG) && selected && selected->TookTurn )
@@ -719,7 +751,7 @@ bool HexBoard::MouseDown( Uint8 button )
 			
 			if( game->Cfg.SettingAsBool("debug") )
 			{
-				bool ecm = Path.ECMvsTeam( selected->Team );
+				bool ecm = Path.ECMvsTeam( selected->Team ) || selected->ActiveStealth;
 				std::string msg = "Dist from ";
 				msg += Num::ToString((*(Path.begin()))->X) + std::string(" ") + Num::ToString((*(Path.begin()))->Y);
 				msg += std::string(" to ");
@@ -775,13 +807,13 @@ bool HexBoard::KeyDown( SDLKey key )
 			MessageInput->Text = "";
 			Selected = NULL;
 			MessageInput->Visible = MessageInput->Enabled = false;
-			Player *player = Raptor::Game->Data.GetPlayer( Raptor::Game->PlayerID );
+			Player *player = game->Data.GetPlayer( game->PlayerID );
 			if( player && ! msg.empty() )
 			{
 				Packet message = Packet( Raptor::Packet::MESSAGE );
 				message.AddString( player->Name + std::string(": ") + msg );
 				message.AddUInt( TextConsole::MSG_CHAT );
-				Raptor::Game->Net.Send( &message );
+				game->Net.Send( &message );
 			}
 		}
 		else if( key == SDLK_ESCAPE )
@@ -796,8 +828,17 @@ bool HexBoard::KeyDown( SDLKey key )
 	{
 		Selected = MessageInput;
 		MessageInput->Visible = MessageInput->Enabled = true;
+		
+		MessageInput->Rect.y = 3;
+		MessageInput->UpdateCalcRects();
+		int min_y = MessageInput->Rect.h + MessageInput->CalcRect.y * 2;
+		for( std::list<Layer*>::iterator layer = game->Layers.Layers.begin(); layer != game->Layers.Layers.end(); layer ++ )
+		{
+			if( (*layer != this) && ((*layer)->Rect.y < min_y) )
+				(*layer)->Rect.y = min_y;
+		}
 	}
-	else if( key == SDLK_i )
+	else if( (key == SDLK_i) || (key == SDLK_F9) )
 	{
 		RecordSheet *rs = game->GetRecordSheet( selected );
 		if( rs )
@@ -885,8 +926,12 @@ bool HexBoard::KeyDown( SDLKey key )
 	else if( key == SDLK_d )
 		game->X += 150. / game->Zoom;
 	
-	else if( (key >= SDLK_F1) && (key <= SDLK_F15) && ((game->State == BattleTech::State::SETUP) || ! game->MyTeam()) )
+	else if( (key >= SDLK_F1) && (key <= SDLK_F8) && ((game->State == BattleTech::State::SETUP) || ! game->MyTeam()) )
 	{
+#ifdef WIN32
+		if( (key == SDLK_F4) && (game->Keys.KeyDown(SDLK_LALT) || game->Keys.KeyDown(SDLK_RALT)) )
+			return false;
+#endif
 		int teams = game->Data.PropertyAsInt("teams",2);
 		int team = key + 1 - SDLK_F1;
 		if( team > teams )
@@ -904,7 +949,20 @@ bool HexBoard::KeyDown( SDLKey key )
 		player_properties.AddString( team_str );
 		game->Net.Send( &player_properties );
 	}
-	else if( key == SDLK_TAB )
+	else if( (key == SDLK_ESCAPE) && selected && ! playing_events )
+	{
+		selected->Steps.clear();
+		selected = NULL;
+		game->SelectedID = 0;
+		game->TargetID = 0;
+		ClearPath();
+	}
+	else if( (key == SDLK_ESCAPE) || (key == SDLK_F10) )
+	{
+		RemoveWeaponMenu();
+		game->Layers.Add( new GameMenu() );
+	}
+	else if( (key == SDLK_TAB) || (key == SDLK_F11) )
 	{
 		RemoveWeaponMenu();
 		game->Layers.Add( new SpawnMenu() );
@@ -914,20 +972,8 @@ bool HexBoard::KeyDown( SDLKey key )
 	&&       (! selected || ! selected->Steps.size()) )
 	{
 		RemoveWeaponMenu();
-		game->Layers.Add( new GameMenu() );
-	}
-	else if( (key == SDLK_ESCAPE) && (playing_events || ! selected) )
-	{
-		RemoveWeaponMenu();
-		game->Layers.Add( new GameMenu() );
-	}
-	else if( (key == SDLK_ESCAPE) && selected )
-	{
-		selected->Steps.clear();
-		selected = NULL;
-		game->SelectedID = 0;
-		game->TargetID = 0;
-		ClearPath();
+		if( ! game->Layers.Find("GameMenu") )
+			game->Layers.Add( new GameMenu() );
 	}
 	
 	// Don't allow doing things when we don't have our team's unit selected.
@@ -968,6 +1014,9 @@ bool HexBoard::KeyDown( SDLKey key )
 			game->TargetID = 0;
 			ClearPath();
 			game->EventClock.Reset( 0. );
+			
+			// Claim this Mech so it will automatically select on future turns.
+			selected->PlayerID = game->PlayerID;
 		}
 		else if( (game->State == BattleTech::State::WEAPON_ATTACK)
 		||       (game->State == BattleTech::State::TAG) )
@@ -1002,9 +1051,9 @@ bool HexBoard::KeyDown( SDLKey key )
 					}
 				}
 			}
-			else if( weapons.size() && (firing_arc == BattleTech::Arc::LEFT_SIDE) )
+			else if( weapons.size() && (firing_arc == BattleTech::Arc::LEFT_SIDE) && selected->Locations[ BattleTech::Loc::LEFT_ARM ].Structure ) // FIXME: Make sure an arm weapon is firing?
 				selected->TurnedArm = BattleTech::Loc::LEFT_ARM;
-			else if( weapons.size() && (firing_arc == BattleTech::Arc::RIGHT_SIDE) )
+			else if( weapons.size() && (firing_arc == BattleTech::Arc::RIGHT_SIDE) && selected->Locations[ BattleTech::Loc::RIGHT_ARM ].Structure ) // FIXME: Make sure an arm weapon is firing?
 				selected->TurnedArm = BattleTech::Loc::RIGHT_ARM;
 			
 			selected->ProneFire = BattleTech::Loc::UNKNOWN;
@@ -1038,12 +1087,12 @@ bool HexBoard::KeyDown( SDLKey key )
 				shots.AddUInt( target->ID );
 				
 				MechEquipment *eq = &(selected->Equipment[ weap->first ]);
-				uint8_t arc_and_flags = target->DamageArc( selected->X, selected->Y );
+				uint8_t arc_and_flags = target->DamageArc( Path.DamageFromX, Path.DamageFromY );
 				if( ! Path.LineOfSight )
 					arc_and_flags |= 0x80; // Indirect Fire
 				else if( Path.PartialCover )
 					arc_and_flags |= 0x40; // Leg Partial Cover
-				if( Path.ECMvsTeam( selected->Team ) )
+				if( Path.ECMvsTeam( selected->Team ) || selected->ActiveStealth )  // When the stealth armor system is engaged, the Mech suffers effects as if in the radius of an enemy ECM suite. [BattleMech Manual p.114]
 					arc_and_flags |= 0x20; // Within Friendly ECM
 				if( target->Narced() && (Path.LineOfSight || (target->Spotted < 99)) )
 					arc_and_flags |= 0x10; // NARC Cluster Bonus (with exceptions in MechEquipment::ClusterHits)
@@ -1054,17 +1103,15 @@ bool HexBoard::KeyDown( SDLKey key )
 				shots.AddUChar( weap->first );
 				shots.AddUChar( selected->WeaponsToFire[ weap->first ] );
 				shots.AddChar( weap->second );
-				
-				if( !(eq->Weapon && eq->Weapon->TAG) ) // TAG will only count as "fired" if it hits (reported in SPOT packet).
-					eq->Fired = weap->second;
 			}
 			
-			if( target && Path.LineOfSight && (game->State == BattleTech::State::WEAPON_ATTACK) && selected->SpottingWithoutTAG() )
+			int8_t weapon_roll_needed = selected->WeaponRollNeeded( target, &Path );
+			if( (weapon_roll_needed < 99) && Path.LineOfSight && (game->State == BattleTech::State::WEAPON_ATTACK) && selected->SpottingWithoutTAG() )
 			{
 				// Spot for Indirect Fire
 				
 				// NOTE: WeaponRollNeeded already adds +1 for SpottingWithoutTAG.
-				int8_t spotted = selected->WeaponRollNeeded( target, &Path ) + (weapons.size() ? 1 : 0) - selected->GunnerySkill - selected->HeatFire;
+				int8_t spotted = weapon_roll_needed + (weapons.size() ? 1 : 0) - selected->GunnerySkill - selected->HeatFire;
 				
 				shots.AddUInt( target->ID );
 				shots.AddChar( spotted );
@@ -1080,6 +1127,9 @@ bool HexBoard::KeyDown( SDLKey key )
 			game->TargetID = 0;
 			ClearPath();
 			game->EventClock.Reset( 0. );
+			
+			// Claim this Mech so it will automatically select on future turns.
+			selected->PlayerID = game->PlayerID;
 		}
 		else if( game->State == BattleTech::State::PHYSICAL_ATTACK )
 		{
@@ -1107,6 +1157,9 @@ bool HexBoard::KeyDown( SDLKey key )
 			game->TargetID = 0;
 			ClearPath();
 			game->EventClock.Reset( 0. );
+			
+			// Claim this Mech so it will automatically select on future turns.
+			selected->PlayerID = game->PlayerID;
 		}
 	}
 	else if( (key == SDLK_LEFT) && (game->State == BattleTech::State::WEAPON_ATTACK) )
@@ -1153,6 +1206,13 @@ bool HexBoard::KeyDown( SDLKey key )
 		game->SelectedID = 0;
 		game->TargetID = 0;
 		ClearPath();
+		
+		if( game->State == BattleTech::State::SETUP )
+		{
+			GameMenu *gm = (GameMenu*) game->Layers.Find("GameMenu");
+			if( gm )
+				gm->Refresh( 0.3 );
+		}
 	}
 	
 	// Only allow moving during movement and setup phases.
@@ -1187,6 +1247,9 @@ bool HexBoard::KeyDown( SDLKey key )
 		stand.AddUInt( selected->ID );
 		stand.AddUChar( selected->MoveSpeed );
 		game->Net.Send( &stand );
+		
+		// Claim this Mech so it will automatically select on future turns.
+		selected->PlayerID = game->PlayerID;
 	}
 	else if( (key == SDLK_UP) && (! selected->Prone) && selected->ReadyAndAble() && ! playing_events )
 	{
@@ -1449,9 +1512,9 @@ Packet *HexBoardAim::CreatePacket( const Mech *selected, const Mech *target, int
 				}
 			}
 		}
-		else if( weapons.size() && (firing_arc == BattleTech::Arc::LEFT_SIDE) )
+		else if( weapons.size() && (firing_arc == BattleTech::Arc::LEFT_SIDE) && selected->Locations[ BattleTech::Loc::LEFT_ARM ].Structure ) // FIXME: Make sure an arm weapon is firing?
 			turned_arm = BattleTech::Loc::LEFT_ARM;
-		else if( weapons.size() && (firing_arc == BattleTech::Arc::RIGHT_SIDE) )
+		else if( weapons.size() && (firing_arc == BattleTech::Arc::RIGHT_SIDE) && selected->Locations[ BattleTech::Loc::RIGHT_ARM ].Structure ) // FIXME: Make sure an arm weapon is firing?
 			turned_arm = BattleTech::Loc::RIGHT_ARM;
 		
 		int8_t prone_fire = BattleTech::Loc::UNKNOWN;
@@ -1485,12 +1548,12 @@ Packet *HexBoardAim::CreatePacket( const Mech *selected, const Mech *target, int
 			p->AddUInt( target->ID );
 			
 			const MechEquipment *eq = &(selected->Equipment[ weap->first ]);
-			uint8_t arc_and_flags = target->DamageArc( selected->X, selected->Y );
+			uint8_t arc_and_flags = target->DamageArc( Path.DamageFromX, Path.DamageFromY );
 			if( ! Path.LineOfSight )
 				arc_and_flags |= 0x80; // Indirect Fire
 			else if( Path.PartialCover )
 				arc_and_flags |= 0x40; // Leg Partial Cover
-			if( Path.ECMvsTeam( selected->Team ) )
+			if( Path.ECMvsTeam( selected->Team ) || selected->ActiveStealth )  // When the stealth armor system is engaged, the Mech suffers effects as if in the radius of an enemy ECM suite. [BattleMech Manual p.114]
 				arc_and_flags |= 0x20; // Within Friendly ECM
 			if( target->Narced() && (Path.LineOfSight || (target->Spotted < 99)) )
 				arc_and_flags |= 0x10; // NARC Cluster Bonus (with exceptions in MechEquipment::ClusterHits)
@@ -1504,19 +1567,15 @@ Packet *HexBoardAim::CreatePacket( const Mech *selected, const Mech *target, int
 			p->AddUChar( weap->first );
 			p->AddUChar( count );
 			p->AddChar( weap->second );
-			
-			/*
-			if( !(eq->Weapon && eq->Weapon->TAG) ) // TAG will only count as "fired" if it hits (reported in SPOT packet).
-				eq->Fired = weap->second;
-			*/
 		}
 		
-		if( target && Path.LineOfSight && (state == BattleTech::State::WEAPON_ATTACK) && selected->SpottingWithoutTAG() )
+		int8_t weapon_roll_needed = selected->WeaponRollNeeded( target, &Path );
+		if( (weapon_roll_needed < 99) && Path.LineOfSight && (state == BattleTech::State::WEAPON_ATTACK) && selected->SpottingWithoutTAG() )
 		{
 			// Spot for Indirect Fire
 			
 			// NOTE: WeaponRollNeeded already adds +1 for SpottingWithoutTAG.
-			int8_t spotted = selected->WeaponRollNeeded( target, &Path ) + (weapons.size() ? 1 : 0) - selected->GunnerySkill - selected->HeatFire;
+			int8_t spotted = weapon_roll_needed + (weapons.size() ? 1 : 0) - selected->GunnerySkill - selected->HeatFire;
 			
 			p->AddUInt( target->ID );
 			p->AddChar( spotted );

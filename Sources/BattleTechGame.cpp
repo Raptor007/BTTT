@@ -294,7 +294,7 @@ size_t BattleTechGame::LoadVariants( std::string dir )
 				else if( v.Equipment.begin()->ID < 0x33 )
 					Console.Print( std::string("Unarmed variant: ") + dir + std::string("/") + std::string(dir_entry_p->d_name), TextConsole::MSG_ERROR );
 				
-				if( debug && ! untextured.count(v.Name) && ! HasMechTex(v.Name) )
+				if( debug && ! untextured.count(v.Name) && ! HasMechTex(v.Name) && v.Stock )
 				{
 					untextured.insert( v.Name );
 					Console.Print( std::string("No MechTex match: ") + v.Name, TextConsole::MSG_ERROR );
@@ -354,6 +354,118 @@ void BattleTechGame::Precache( void )
 }
 
 
+std::map< std::string, const Variant* > BattleTechGame::VariantSearch( std::string text, bool search_equipment ) const
+{
+	std::map<std::string,const Variant*> matches;
+	std::list<std::string> words = Str::SplitToList( text, " " );
+	
+	for( std::list<std::string>::iterator word = words.begin(); word != words.end(); word ++ )
+	{
+		for( size_t i = 0; i < word->length(); i ++ )
+		{
+			// Replace underscores with spaces to allow searching for LRM_20 etc.
+			if( (*word)[ i ] == '_' )
+				(*word)[ i ] = ' ';
+		}
+	}
+	
+	for( std::map<std::string,Variant>::const_iterator var = Variants.begin(); var != Variants.end(); var ++ )
+	{
+		bool match = true;
+		for( std::list<std::string>::const_iterator word = words.begin(); word != words.end(); word ++ )
+		{
+			size_t word_len = word->length();
+			if( ! word_len )
+				continue;
+			
+			int found = Str::FindInsensitive( var->first, *word );
+			
+			// Single letter search terms are probably the variant, so ignore mid-word matches.
+			if( (found > 0) && (word_len == 1) )
+				found = Str::FindInsensitive( var->first, std::string(" ") + *word );
+			
+			if( found < 0 )
+			{
+				match = false;
+				
+				if( (! var->second.Clan) && ((*word == "[IS]") || (*word == "[I]")) )
+					match = true;
+				else if( var->second.Stock && (! var->second.Quad) && (*word == "stock") )
+					match = true;
+				else if( (! var->second.Stock) && (*word == "custom") )
+					match = true;
+				else if( var->second.Quad && (*word == "quad") )
+					match = true;
+				else if( (*word == "textured") && HasMechTex(var->second.Name) )
+					match = true;
+				else if( (*word == "untextured") && ! HasMechTex(var->second.Name) )
+					match = true;
+				
+				// Tonnage Range (xxT-xxT or xxT-100T)
+				else if( (word_len >= 5) && (word->at(0) >= '0') && (word->at(0) <= '9')
+				&&       (word->at(word_len-2) >= '0') && (word->at(word_len-2) <= '9')
+				&&       (toupper(word->at(word_len-1)) == 'T') && (Str::FindInsensitive( *word, "T-" ) >= 0) )
+				{
+					const char *word_cstr = word->c_str();
+					uint8_t min_tons = atoi( word_cstr );
+					uint8_t max_tons = 100;
+					int index = CStr::FindInsensitive( word_cstr, "T-" );
+					if( index >= 0 )
+						max_tons = atoi( word_cstr + index + 2 );
+					match = (var->second.Tons >= min_tons) && (var->second.Tons <= max_tons);
+				}
+				
+				// Era (xxxx or xxxx-xxxx)
+				else if( atoi(word->c_str()) == var->second.Era )
+					match = true;
+				else if( (word_len == 9) && (word->at(4) == '-')
+				&&       (word->at(0) >= '0') && (word->at(0) <= '9')
+				&&       (word->at(1) >= '0') && (word->at(1) <= '9')
+				&&       (word->at(2) >= '0') && (word->at(2) <= '9')
+				&&       (word->at(3) >= '0') && (word->at(3) <= '9')
+				&&       (word->at(5) >= '0') && (word->at(5) <= '9')
+				&&       (word->at(6) >= '0') && (word->at(6) <= '9')
+				&&       (word->at(7) >= '0') && (word->at(7) <= '9')
+				&&       (word->at(8) >= '0') && (word->at(8) <= '9') )
+				{
+					int min_era = atoi(word->c_str());
+					int max_era = atoi(word->c_str() + 5);
+					match = (var->second.Era >= min_era) && (var->second.Era <= max_era);
+				}
+				
+				else if( search_equipment && (word_len > 1) )
+				{
+					const std::map< short, HMWeapon > *weapons = var->second.Clan ? &ClanWeap : &ISWeap;
+					for( std::vector<VariantEquipment>::const_iterator eq = var->second.Equipment.begin(); eq != var->second.Equipment.end(); eq ++ )
+					{
+						std::string eq_name = HeavyMetal::CritName( eq->ID, weapons );
+						int eq_found = Str::FindInsensitive( eq_name, *word );
+						
+						// Equipment search should always match start of words, unless the search term is something like "/20" or "-X".
+						if( (eq_found > 0) && (word->at(0) != '/') && (word->at(0) != '-') )
+							eq_found = Str::FindInsensitive( eq_name, std::string(" ") + *word );
+						
+						if( eq_found >= 0 )
+						{
+							match = true;
+							break;
+						}
+					}
+				}
+				
+				if( ! match )
+					break;
+			}
+		}
+		
+		if( match )
+			matches[ var->first ] = &(var->second);
+	}
+	
+	return matches;
+}
+
+
 void BattleTechGame::Update( double dt )
 {
 	RaptorGame::Update( dt );
@@ -391,7 +503,10 @@ void BattleTechGame::Update( double dt )
 			if( obj_iter->second->Type() == BattleTech::Object::MAP )
 			{
 				HexMap *map = (HexMap*) obj_iter->second;
+				map->Clear();
 				map->Randomize();
+				server->Console->Print( "================================================================================" );
+				server->Console->Print( std::string("Map seed: ") + Num::ToString((int) map->Seed) );
 				
 				Packet update = Packet( Raptor::Packet::UPDATE );
 				update.AddChar( 127 ); // Precision
@@ -724,7 +839,7 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 					left = ! left;
 				Vec3D offset( &vec );
 				offset.ScaleTo( Rand::Double( 0.45, 0.5 ) );
-				offset.RotateAround( &(Raptor::Game->Cam.Fwd), left ? Rand::Double( 50., 130. ) : Rand::Double( -130., -50. ) );
+				offset.RotateAround( &(Cam.Fwd), left ? Rand::Double( 50., 130. ) : Rand::Double( -130., -50. ) );
 				vec += offset;
 			}
 			double dist = vec.Length();
@@ -950,7 +1065,7 @@ void BattleTechGame::ShowRecordSheet( const Mech *mech, double duration )
 		if( ! mech )
 			return;
 		rs = new RecordSheet( mech );
-		Raptor::Game->Layers.Add( rs );
+		Layers.Add( rs );
 		rs->AutoHide = duration;
 	}
 	else if( rs->AutoHide && ! duration )
@@ -983,7 +1098,7 @@ RecordSheet *BattleTechGame::GetRecordSheet( const Mech *mech )
 
 bool BattleTechGame::HandleEvent( SDL_Event *event )
 {
-	return false;
+	return RaptorGame::HandleEvent( event );
 }
 
 
@@ -1022,7 +1137,11 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 				player_properties.AddUInt( 1 );
 				player_properties.AddString( "team" );
 				player_properties.AddString( params->at(0) );
-				Raptor::Game->Net.Send( &player_properties );
+				Net.Send( &player_properties );
+				
+				GameMenu *gm = (GameMenu*) Layers.Find("GameMenu");
+				if( gm )
+					gm->Refresh( 0.3 );
 			}
 			else
 			{
@@ -1039,6 +1158,140 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 		else
 			Console.Print( "Must be in a game to choose team.", TextConsole::MSG_ERROR );
 	}
+	else if( cmd == "spawn" )
+	{
+		if( State < Raptor::State::CONNECTED )
+		{
+			Console.Print( "Must be in a game to spawn Mechs.", TextConsole::MSG_ERROR );
+			return true;
+		}
+		
+		const Variant *variant = NULL;
+		if( params && params->size() )
+		{
+			std::map<std::string,const Variant*> matches = VariantSearch( params->at(0) );
+			if( matches.size() )
+			{
+				std::map<std::string,const Variant*>::const_iterator match = matches.begin();
+				int index = Rand::Int( 0, matches.size() - 1 );
+				for( int i = 0; i < index; i ++ )
+					match ++;
+				variant = match->second;
+			}
+			else
+			{
+				Console.Print( "Could not find Mech: " + params->at(0), TextConsole::MSG_ERROR );
+				return true;
+			}
+		}
+		else if( Variants.size() )
+		{
+			std::map<std::string,Variant>::const_iterator mech = Variants.begin();
+			int index = Rand::Int( 0, Variants.size() - 1 );
+			for( int i = 0; i < index; i ++ )
+				mech ++;
+			variant = &(mech->second);
+		}
+		else
+		{
+			Console.Print( "Cannot spawn from empty Mech list.", TextConsole::MSG_ERROR );
+			return true;
+		}
+		
+		HexMap *map = Map();
+		size_t w, h;
+		map->GetSize( &w, &h );
+		uint8_t x = Rand::Int( 0, w - 1 );
+		uint8_t y = Rand::Int( 0, h - 1 - x%2 );
+		uint8_t facing = ((size_t)y+1 > h/2) ? 0 : 3;
+		int8_t piloting = 4, gunnery = 3;
+		double chance = 1.;
+		
+		if( params && (params->size() > 1) )
+		{
+			for( size_t i = 1; i < params->size(); i ++ )
+			{
+				const char *param = params->at(i).c_str();
+				if( param[ 0 ] == 'X' )
+					x = atoi( param + 1 );
+				else if( param[ 0 ] == 'Y' )
+					y = atoi( param + 1 );
+				else if( param[ 0 ] == 'F' )
+					facing = (atoi( param + 1 ) + 6) % 6;
+				else if( param[ 0 ] == 'P' )
+					piloting = atoi( param + 1 );
+				else if( param[ 0 ] == 'G' )
+					gunnery = atoi( param + 1 );
+				else if( param[ 0 ] == 'C' )
+					chance = atof( param + 1 ) / 100.;
+			}
+		}
+		
+		if( (chance < 1.) && ! Rand::Bool( chance ) )
+			return true;
+		
+		Packet spawn_mech( BattleTech::Packet::SPAWN_MECH );
+		spawn_mech.AddUChar( x );
+		spawn_mech.AddUChar( y );
+		spawn_mech.AddUChar( facing );
+		variant->AddToPacket( &spawn_mech );
+		spawn_mech.AddChar( piloting );
+		spawn_mech.AddChar( gunnery );
+		Net.Send( &spawn_mech );
+		
+		GameMenu *gm = (GameMenu*) Layers.Find("GameMenu");
+		if( gm )
+			gm->Refresh( 0.3 );
+		
+		SpawnMenu *sm = (SpawnMenu*) Layers.Find("SpawnMenu");
+		if( sm && sm->SearchBox && sm->SearchBox->Container )
+			sm->SearchBox->Container->Selected = NULL;
+	}
+	else if( cmd == "clear" )
+	{
+		if( State != BattleTech::State::SETUP )
+		{
+			Console.Print( "Must be at Setup phase to clear all Mechs.", TextConsole::MSG_ERROR );
+			return true;
+		}
+		
+		std::set<uint8_t> x, y, t;
+		if( params && params->size() )
+		{
+			for( size_t i = 0; i < params->size(); i ++ )
+			{
+				const char *param = params->at(i).c_str();
+				if( param[ 0 ] == 'X' )
+					x.insert( atoi( param + 1 ) );
+				else if( param[ 0 ] == 'Y' )
+					y.insert( atoi( param + 1 ) );
+				else if( param[ 0 ] == 'T' )
+					t.insert( atoi( param + 1 ) );
+			}
+		}
+		
+		for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
+		{
+			if( obj_iter->second->Type() == BattleTech::Object::MECH )
+			{
+				const Mech *mech = (const Mech*) obj_iter->second;
+				if( x.size() && (x.find( mech->X ) == x.end()) )
+					continue;
+				if( y.size() && (y.find( mech->Y ) == y.end()) )
+					continue;
+				if( t.size() && (t.find( mech->Team ) == t.end()) )
+					continue;
+				
+				Packet remove_mech( BattleTech::Packet::REMOVE_MECH );
+				remove_mech.AddUInt( mech->ID );
+				Net.Send( &remove_mech );
+			}
+		}
+		
+		GameMenu *gm = (GameMenu*) Layers.Find("GameMenu");
+		if( gm )
+			gm->Refresh( 0.3 );
+	}
 	else if( cmd == "ready" )
 	{
 		uint8_t team_num = MyTeam();
@@ -1046,7 +1299,7 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 		{
 			Packet ready = Packet( BattleTech::Packet::READY );
 			ready.AddUChar( team_num );
-			Raptor::Game->Net.Send( &ready );
+			Net.Send( &ready );
 		}
 		else
 			Console.Print( "Must be in a game and on a team to ready up.", TextConsole::MSG_ERROR );
@@ -1057,10 +1310,12 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 	{
 		bool reload_mechtex = true;
 		bool reload_mechs = true;
+		bool reload_biomes = true;
 		if( params && params->size() )
 		{
 			reload_mechtex = (std::find( params->begin(), params->end(), "mechtex" ) != params->end());
 			reload_mechs   = (std::find( params->begin(), params->end(), "mechs"   ) != params->end());
+			reload_biomes  = (std::find( params->begin(), params->end(), "biomes"  ) != params->end());
 		}
 		if( reload_mechtex )
 		{
@@ -1075,6 +1330,11 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 		{
 			Variants.clear();
 			LoadVariants( Res.Find("Mechs") );
+		}
+		if( reload_biomes )
+		{
+			Biomes.clear();
+			LoadBiomes();
 		}
 	}
 	else
@@ -1156,7 +1416,7 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 			player_properties.AddUInt( 1 );
 			player_properties.AddString( "team" );
 			player_properties.AddString( team_str );
-			Raptor::Game->Net.Send( &player_properties );
+			Net.Send( &player_properties );
 			
 			SelectedID = 0;  // In hotseat mode, always select a Mech for the active team.
 		}
@@ -1189,15 +1449,11 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 					if( obj_iter->second->Type() == BattleTech::Object::MECH )
 					{
 						const Mech *mech = (const Mech*) obj_iter->second;
-						if( (mech->Team == TeamTurn) && mech->ReadyAndAble() )
+						if( (mech->Team == TeamTurn) && mech->ReadyAndAble() && ((mech->PlayerID == PlayerID) || (Data.Players.size() == 1)) )
 						{
-							const Player *other_owner = (mech->PlayerID == PlayerID) ? NULL : mech->Owner();
-							if( ! other_owner )
-							{
-								SelectedID = mech->ID;
-								selected = mech;
-								break;
-							}
+							SelectedID = mech->ID;
+							selected = mech;
+							break;
 						}
 					}
 				}
@@ -1211,15 +1467,11 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 					if( obj_iter->second->Type() == BattleTech::Object::MECH )
 					{
 						const Mech *mech = (const Mech*) obj_iter->second;
-						if( (mech->Team == TeamTurn) && mech->Ready() )
+						if( (mech->Team == TeamTurn) && mech->Ready() && ((mech->PlayerID == PlayerID) || (Data.Players.size() == 1)) )
 						{
-							const Player *other_owner = (mech->PlayerID == PlayerID) ? NULL : mech->Owner();
-							if( ! other_owner )
-							{
-								SelectedID = mech->ID;
-								selected = mech;
-								break;
-							}
+							SelectedID = mech->ID;
+							selected = mech;
+							break;
 						}
 					}
 				}
@@ -1263,7 +1515,7 @@ void BattleTechGame::ChangeState( int state )
 					info.AddUShort( 1 );
 					info.AddString( "biome" );
 					info.AddString( Biomes.at( Rand::Int( 0, Biomes.size() - 1 ) ).second );
-					Raptor::Game->Net.Send( &info );
+					Net.Send( &info );
 				}
 				Layers.Add( new Screensaver() );
 			}
@@ -1277,7 +1529,7 @@ void BattleTechGame::ChangeState( int state )
 					info.AddUShort( 1 );
 					info.AddString( "biome" );
 					info.AddString( Biomes.begin()->second );
-					Raptor::Game->Net.Send( &info );
+					Net.Send( &info );
 				}
 				Layers.Add( new GameMenu() );
 			}
@@ -1322,7 +1574,7 @@ void BattleTechGame::ChangeState( int state )
 				info.AddUShort( 1 );
 				info.AddString( "biome" );
 				info.AddString( Biomes.at( Rand::Int( 0, Biomes.size() - 1 ) ).second );
-				Raptor::Game->Net.Send( &info );
+				Net.Send( &info );
 			}
 			Layers.Add( new Screensaver() );
 		}
@@ -1379,8 +1631,8 @@ void BattleTechGame::ChangeState( int state )
 				for( int j = 0; j < index; j ++ )
 					mech ++;
 				mech->second.AddToPacket( &spawn_mech );
-				spawn_mech.AddUChar( 4 ); // Piloting
-				spawn_mech.AddUChar( 3 ); // Gunnery
+				spawn_mech.AddChar( 4 ); // Piloting
+				spawn_mech.AddChar( 3 ); // Gunnery
 				Net.Send( &spawn_mech );
 			}
 		}
@@ -1481,12 +1733,8 @@ Mech *BattleTechGame::MyMech( void )
 		if( obj_iter->second->Type() == BattleTech::Object::MECH )
 		{
 			Mech *mech = (Mech*) obj_iter->second;
-			if( (mech->Team == my_team) && ! mech->Destroyed() )
-			{
-				const Player *other_owner = (mech->PlayerID == PlayerID) ? NULL : mech->Owner();
-				if( ! other_owner )
-					return mech;
-			}
+			if( (mech->Team == my_team) && ! mech->Destroyed() && ((mech->PlayerID == PlayerID) || (Data.Players.size() == 1)) )
+				return mech;
 		}
 	}
 	return NULL;

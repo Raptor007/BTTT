@@ -203,8 +203,6 @@ public:
 	std::string ShortName( void ) const;
 	std::string ShortFullName( void ) const;
 	
-	const Player *Owner( void ) const;
-	
 	uint8_t WalkDist( void ) const;
 	uint8_t RunDist( void ) const;
 	uint8_t MASCDist( uint8_t speed = BattleTech::Speed::MASC_SUPERCHARGE ) const;

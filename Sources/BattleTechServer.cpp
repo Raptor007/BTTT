@@ -66,7 +66,7 @@ void BattleTechServer::Started( void )
 	HexMap *map = new HexMap();
 	map->Randomize();
 	Data.AddObject( map );
-	Console->Print( "Map seed: " + Num::ToString( (int) map->Seed ) );
+	Console->Print( std::string("Map seed: ") + Num::ToString((int) map->Seed) );
 	
 	// The Windows random number generator was making me superstitious.
 	for( size_t throwaway_rolls = (time(NULL) % 4) * 2 + 1; throwaway_rolls; throwaway_rolls -- )
@@ -220,6 +220,40 @@ bool BattleTechServer::HandleCommand( std::string cmd, std::vector<std::string> 
 					else
 						Console->Print( "Usage: sv mech <id> crit <eq> [<loc>]" );
 				}
+				else if( params->at(1) == "on" )
+				{
+					if( mech->Shutdown )
+					{
+						mech->Shutdown = false;
+						Event e( mech );
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::DARK_GREEN;
+						e.ShowStat( mech, BattleTech::Stat::SHUTDOWN );
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced ") + mech->FullName() + std::string(" to start up.");
+						Events.push( e );
+						SendEvents();
+					}
+					else
+						Console->Print( mech->FullName() + std::string(" is already online.") );
+				}
+				else if( params->at(1) == "off" )
+				{
+					if( ! mech->Shutdown )
+					{
+						mech->Shutdown = true;
+						Event e( mech );
+						e.Effect = BattleTech::Effect::BLINK;
+						e.Misc = BattleTech::RGB332::DARK_GREY;
+						e.ShowStat( mech, BattleTech::Stat::SHUTDOWN );
+						e.Sound = "i_pass.wav";
+						e.Text = std::string("Server admin forced ") + mech->FullName() + std::string(" to shut down.");
+						Events.push( e );
+						SendEvents();
+					}
+					else
+						Console->Print( mech->FullName() + std::string(" is already shutdown.") );
+				}
 				else if( params->at(1) == "prone" )
 				{
 					if( ! mech->Prone )
@@ -316,7 +350,7 @@ bool BattleTechServer::HandleCommand( std::string cmd, std::vector<std::string> 
 						Console->Print( mech->FullName() + std::string(" is at heat ") + Num::ToString((int)(mech->Heat)) + std::string(".") );
 				}
 				else
-					Console->Print( "Usage: sv mech <id> info|destroy|crit|prone|stand|sleep|wake|heat" );
+					Console->Print( "Usage: sv mech <id> info|destroy|crit|prone|stand|sleep|wake|heat|on|off" );
 			}
 			else
 				Console->Print( std::string("Object ") + params->at(0) + std::string(" is not a Mech.") );
@@ -372,6 +406,29 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		Variant v;
 		v.ReadFromPacket( packet );
 		
+		const HexMap *map = Map();
+		if( map )
+		{
+			const Mech *occupied = map->MechAt_const( x, y );
+			if( occupied && ! occupied->Destroyed() )
+			{
+				Event e( occupied );
+				e.Effect = BattleTech::Effect::BLINK;
+				e.Misc = BattleTech::RGB332::WHITE;
+				e.Sound = "i_toofar.wav";
+				e.Text = "Hex is already occupied.";
+				e.Duration = 0.3;
+				Packet events( BattleTech::Packet::EVENTS );
+				events.AddUShort( 1 );
+				e.AddToPacket( &events );
+				if( from_client )
+					from_client->Send( &events );
+				else
+					Net.SendAll( &events );
+				return true;
+			}
+		}
+		
 		Mech *m = new Mech();
 		
 		m->PlayerID = from_player_id;
@@ -383,8 +440,8 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		m->Y = y;
 		m->Facing = facing;
 		
-		m->PilotSkill   = packet->NextUChar();
-		m->GunnerySkill = packet->NextUChar();
+		m->PilotSkill   = packet->NextChar();
+		m->GunnerySkill = packet->NextChar();
 		
 		Data.AddObject( m );
 		
@@ -491,7 +548,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			
 			map->SetSize( w, h );
 			map->Randomize( seed );
-			Console->Print( "Map seed: " + Num::ToString( (int) map->Seed ) );
+			Console->Print( std::string("Map seed: ") + Num::ToString((int) map->Seed) );
 			
 			std::set<Mech*> moved;
 			for( std::map<uint32_t,GameObject*>::iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
@@ -752,6 +809,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			return true;
 		
 		// Set movement speed and make any MASC/Supercharger checks.  Abort standing if failed check reduces MP or makes us unable to move.
+		bool already_declared = mech->MoveSpeed;
 		if( (State != BattleTech::State::SETUP) && ! DeclareMovement( mech, move_speed, true ) )
 			return true;
 		
@@ -763,11 +821,11 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			e.Duration = 0.f;
 		else
 		{
-			// Each attempt to stand generates 1 heat.
-			mech->Heat ++;
+			mech->StandAttempts ++;
+			mech->Heat ++;  // Each attempt to stand generates 1 heat.
 			
 			e.Text = mech->ShortFullName();
-			if( ! mech->MoveSpeed )
+			if( ! already_declared )
 				e.Text += (move_speed >= BattleTech::Speed::RUN) ? " stands up running." : " stands up walking.";
 			else
 				e.Text += " stands up.";
@@ -796,7 +854,6 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			
 			// This 'Mech must now complete its turn before anyone else can move.
 			UnitTurn = mech->ID;
-			mech->MoveSpeed = move_speed;
 		}
 	}
 	else if( type == BattleTech::Packet::SHOTS )
@@ -867,26 +924,31 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				}
 			}
 			
-			e.AddToPacket( &events );
-			
 			if( show_twist )
 			{
 				Event torso( from );
 				torso.Effect = BattleTech::Effect::TORSO_TWIST;
 				torso.ShowFacing( from );
 				torso.Sound = "m_twist.wav";
-				torso.Duration = 0.4f;
+				torso.Duration = 0.f;
 				torso.AddToPacket( &events );
 			}
+			
+			e.AddToPacket( &events );
 			
 			Net.SendAll( &events );
 		}
 		
 		if( State == BattleTech::State::TAG )
+		{
 			e.Text = from->ShortFullName() + std::string(count?" is using TAG.":" is not using TAG.");
-		else
+			Events.push( e );
+		}
+		else if( count )
+		{
 			e.Text = from->ShortFullName() + std::string(" is firing ") + Num::ToString((int)count) + std::string((count == 1)?" weapon.":" weapons." );
-		Events.push( e );
+			Events.push( e );
+		}
 		
 		for( uint8_t i = 0; i < count; i ++ )
 		{
@@ -988,7 +1050,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				e.Sound = eq->Weapon->Sound;
 				e.Effect = eq->Weapon->Effect;
 				e.Loc = eq->Location->Loc;
-				e.ShowStat( BattleTech::Stat::HEAT_ADD, eq->Weapon->Heat * fire_count );
+				e.ShowStat( BattleTech::Stat::WEAPON_FIRED, eq->Index(), fire_count );
 			}
 			else if( eq->Weapon->Type == HMWeapon::MISSILE_STREAK )
 				e.Text += "  Streak held fire instead of missing.";
@@ -1609,6 +1671,7 @@ void BattleTechServer::ChangeState( int state )
 		}
 		
 		// Keep assigning sets of turns until none remain.
+		// FIXME: This is probably wrong for 3+ teams with uneven numbers!
 		while( total_turns_remaining )
 		{
 			// Determine which team has the fewest to move.
@@ -1683,6 +1746,42 @@ void BattleTechServer::ChangeState( int state )
 	SendEvents();
 	
 	AI.BeginPhase( state );
+	
+	
+	if( state == BattleTech::State::GAME_OVER )
+	{
+		if( Initiative.size() == 1 )
+		{
+			uint8_t winner = *(Initiative.rbegin());
+			Event e;
+			e.Text = TeamName(winner) + std::string(" has won the battle!");
+			e.Duration = 2.f;
+			for( std::map<uint16_t,Player*>::const_iterator player = Data.Players.begin(); player != Data.Players.end(); player ++ )
+			{
+				// FIXME: Set sound to b_win/b_fail and send to specific players!
+				uint8_t team = player->second->PropertyAsInt("team");
+				if( team && ! AI.ControlsTeam(team) )
+					e.Sound = (team == winner) ? "b_win.wav" : "b_fail.wav";
+				else
+					e.Sound = "";
+				Packet events( BattleTech::Packet::EVENTS );
+				events.AddUShort( 1 );
+				e.AddToPacket( &events );
+				Net.SendToPlayer( &events, player->first );
+			}
+		}
+		else
+		{
+			Packet events( BattleTech::Packet::EVENTS );
+			events.AddUShort( 1 );
+			Event e;
+			e.Text = "The battle ended in a draw.";
+			e.Duration = 2.f;
+			e.AddToPacket( &events );
+			Net.SendAll( &events );
+		}
+	}
+	
 	
 	if( state > BattleTech::State::SETUP )
 		TookTurn();
@@ -1957,7 +2056,7 @@ void BattleTechServer::TookTurn( Mech *mech )
 	}
 	else
 	{
-		bool game_over = (Initiative.size() < 2) && ! FF();
+		bool game_over = (Initiative.size() < 2) && ! FF();  // FIXME: With friendly fire it should end at last Mech standing.
 		
 		int next_state = State;
 		if( (State == BattleTech::State::END) && ! game_over )

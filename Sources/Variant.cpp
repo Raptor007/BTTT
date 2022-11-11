@@ -75,6 +75,7 @@ Variant::Variant( void )
 	BV2 = 0;
 	Clan = false;
 	Quad = false;
+	Stock = false;
 	Walk = 0;
 	Jump = 0;
 	MASC = false;
@@ -113,6 +114,7 @@ bool Variant::Load( const char *filename )
 	if( (design != 1) && (design != 2) && (design != 4) )
 		return false;
 	
+	Stock = (design == 1);
 	Quad = buf[ 0x07 ] & 0x10;
 	Tons = buf[ 0x11 ];
 	
@@ -124,6 +126,9 @@ bool Variant::Load( const char *filename )
 	
 	Era = Endian::ReadLittle16( ptr );
 	BV2 = Endian::ReadLittle16( ptr + 8 );
+	
+	if( Endian::ReadLittle16( ptr + 2 ) > 2 ) // Rules level.
+		Stock = false;
 	
 	ptr = HeavyMetal::hmstrcpy( NULL, ptr + 30 );
 	
@@ -246,7 +251,7 @@ bool Variant::Load( const char *filename )
 			{
 				size_t slots = HeavyMetal::CritSlots( crit_id, clan_hs, weapons );
 				VariantEquipment *equipment = NULL;
-				bool rear = (crit_id <= 400) && (ptr[ 2 ] & 0x01);
+				bool rear = (crit_id < 451) && (ptr[ 2 ] & 0x01);
 				
 				for( std::vector<VariantEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
 				{
@@ -260,7 +265,7 @@ bool Variant::Load( const char *filename )
 				if( ! equipment )
 				{
 					equipment = &*(Equipment.insert( insert_at, VariantEquipment(crit_id) ));
-					if( crit_id > 400 )
+					if( crit_id >= 451 )
 						equipment->Ammo = ptr[ 2 ];
 				}
 				

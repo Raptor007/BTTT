@@ -151,7 +151,7 @@ void BotAI::TakeTurn( void )
 		return;
 	
 	// Select a viable Mech at random.
-	// FIXME: Should this be selected intelligently?
+	// FIXME: Should this be selected intelligently?  Maybe 0 weapons to fire should shoot first so they can spot for indirect fire?
 	Mech *mech = mechs.at( rand() % mechs.size() );
 	
 	std::map<uint32_t,Packet*>::iterator prepared_turn = PreparedTurns.find( mech->ID );
@@ -166,29 +166,28 @@ void BotAI::TakeTurn( void )
 	{
 		if( mech->Prone && mech->CanStand() && ! mech->Unconscious && ! mech->Shutdown )
 		{
-			if( ! mech->MoveSpeed )
+			uint8_t move_speed = mech->MoveSpeed;
+			if( ! move_speed )
 			{
-				mech->MoveSpeed = BattleTech::Speed::RUN; // FIXME: Choose walk/run intelligently?
+				move_speed = BattleTech::Speed::RUN; // FIXME: Choose walk/run intelligently?
 				
 				// If running would trigger additional PSRs for damaged Gyro/Hip, stand walking instead.
 				if( (mech->WalkDist() >= 2) && (mech->DamagedCriticalCount(BattleTech::Equipment::GYRO) || mech->DamagedCriticalCount(BattleTech::Equipment::HIP)) )
-					mech->MoveSpeed = BattleTech::Speed::WALK;
+					move_speed = BattleTech::Speed::WALK;
 				
 				/*
 				// If we can safely use MASC or Supercharger to stand, make it so.
 				else if( mech->MASCDist(BattleTech::Speed::MASC) && ! mech->MASCTurns )
-					mech->MoveSpeed = BattleTech::Speed::MASC;
+					move_speed = BattleTech::Speed::MASC;
 				else if( mech->MASCDist(BattleTech::Speed::SUPERCHARGE) && ! mech->SuperchargerTurns )
-					mech->MoveSpeed = BattleTech::Speed::SUPERCHARGE;
+					move_speed = BattleTech::Speed::SUPERCHARGE;
 				*/
 			}
 			
 			Packet p( BattleTech::Packet::STAND );
 			p.AddUInt( mech->ID );
-			p.AddUChar( mech->MoveSpeed );
+			p.AddUChar( move_speed );
 			server->ProcessPacket( &p, NULL );
-			
-			mech->StandAttempts ++;
 		}
 		else
 		{
@@ -209,11 +208,11 @@ void BotAI::TakeTurn( void )
 					continue;
 				
 				mech->Steps.clear();
+				int8_t turning = 0;
 				
 				while( (mech->SpeedNeeded() != BattleTech::Speed::INVALID) && (mech->Steps.size() < 100) )
 				{
-					BotAIAim aim;
-					aim.Initialize( mech, target, server->State, map );
+					BotAIAim aim( mech, target, server->State, map );
 					double value = aim.Value();
 					
 					if( (value > best_value) && (mech->SpeedNeeded(true) != BattleTech::Speed::INVALID) )
@@ -234,20 +233,43 @@ void BotAI::TakeTurn( void )
 					
 					if( turn )
 					{
-						if( ! mech->Turn( turn ) )
+						if( ! mech->Turn( turn ) ) // Cannot turn (out of movement points or immobile) so we exit the loop.
 							break;
+						turning = turn;
 					}
-					else
+					// FIXME: Consider reverse movement, as it may improve chances to hit with minimum ranges.
+					else if( ! mech->Step( BattleTech::Move::FORWARD ) )
 					{
-						// FIXME: Consider reverse movement, as it may improve chances to hit with minimum ranges.
-						if( ! mech->Step( BattleTech::Move::FORWARD ) )
+						// Try to walk around the obstruction.
+						bool stepped = false;
+						if( ! turning )
+							turning = (mech->RelativeAngle( target->X, target->Y ) >= 0.) ? 1 : -1;
+						for( int i = 0; i < 7; i ++ )
 						{
-							// Try to walk around the obstruction.
-							if( ! mech->Turn( Rand::Bool() ? -1 : 1 ) )
+							// First try the same direction we previously turned, then go back the other way.
+							if( ! mech->Turn( (i <= 1) ? turning : (turning * -1) ) )
 								break;
-							if( ! mech->Step( BattleTech::Move::FORWARD ) )
+							if( (i == 2) || (i == 3) ) // We already tried these directions.
+								continue;
+							
+							BotAIAim aim( mech, target, server->State, map );
+							double value = aim.Value();
+							
+							if( (value > best_value) && (mech->SpeedNeeded(true) != BattleTech::Speed::INVALID) )
+							{
+								best_steps = mech->Steps;
+								best_value = value;
+								best_target = target;
+							}
+							
+							if( mech->Step( BattleTech::Move::FORWARD ) )
+							{
+								stepped = true;
 								break;
+							}
 						}
+						if( ! stepped ) // Cannot move (out of MP, immobile, or stuck) so we exit the loop.
+							break;
 					}
 				}
 			}
@@ -262,8 +284,7 @@ void BotAI::TakeTurn( void )
 				{
 					mech->Turn( 1 );
 					
-					BotAIAim aim;
-					aim.Initialize( mech, best_target, server->State, map );
+					BotAIAim aim( mech, best_target, server->State, map );
 					double value = aim.Value();
 					
 					if( (value > best_value) && (mech->SpeedNeeded(true) != BattleTech::Speed::INVALID) )
@@ -308,6 +329,27 @@ void BotAI::TakeTurn( void )
 // -----------------------------------------------------------------------------
 
 
+BotAIAim::BotAIAim( void )
+{
+	From = NULL;
+	Target = NULL;
+	State = 0;
+	TorsoTwist = 0;
+	ValueBonus = 0.;
+}
+
+
+BotAIAim::BotAIAim( Mech *from, const Mech *target, int state, const HexMap *map )
+{
+	Initialize( from, target, state, map );
+}
+
+
+BotAIAim::~BotAIAim()
+{
+}
+
+
 void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexMap *map )
 {
 	From = from;
@@ -330,8 +372,8 @@ void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexM
 		// Slightly prefer getting closer to target.
 		ValueBonus += 0.1 * (map->HexDist( From->X, From->Y, Target->X, Target->Y ) - map->HexDist( x, y, Target->X, Target->Y ));
 		
-		// Slightly prefer higher elevation, like a cat.
-		ValueBonus += hex->Height * 0.1;
+		// Very slightly prefer higher elevation, like a cat.
+		ValueBonus += hex->Height * 0.01;
 		
 		// Prefer stopping in trees.
 		ValueBonus += hex->Forest;
@@ -365,7 +407,7 @@ void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexM
 			ValueBonus -= 10. * From->SuperchargerTurns;
 	}
 	
-	if( ((State == BattleTech::State::WEAPON_ATTACK) || (State == BattleTech::State::MOVEMENT)) && From->ReadyAndAble(State) )
+	if( ((State == BattleTech::State::WEAPON_ATTACK) || (State == BattleTech::State::MOVEMENT)) && From->ReadyAndAble(State) && ! From->Prone )
 	{
 		// Determine best torso twist to hit this target.
 		double value_c = ValueWithTwist( from, 0 );
@@ -396,18 +438,20 @@ void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexM
 void BotAIAim::ChooseWeapons( void )
 {
 	WeaponsToFire.clear();
+	int total_shots = 0;
 	for( std::map<uint8_t,int8_t>::const_iterator weapon = WeaponsInRange.begin(); weapon != WeaponsInRange.end(); weapon ++ )
 	{
 		const MechEquipment *eq = &(From->Equipment[ weapon->first ]);
 		WeaponsToFire[ weapon->first ] = std::max<uint8_t>( 1, eq->Weapon->RapidFire );
+		total_shots += WeaponsToFire[ weapon->first ];
 	}
 	
 	int16_t base_heat = From->Heat - From->HeatDissipation;
 	int16_t shot_heat = ShotHeat();
 	while( shot_heat && ((shot_heat + base_heat) >= 5) )
 	{
-		// Always fire at least 1 shot.
-		if( (WeaponsToFire.size() == 1) && (WeaponsToFire.begin()->second == 1) )
+		// Always fire at least 1 shot when possible.
+		if( total_shots == 1 )
 			break;
 		
 		double worst_value = 7777777.;
@@ -419,6 +463,10 @@ void BotAIAim::ChooseWeapons( void )
 			// Start with damage multiplied by likely rapid fire hits.
 			double value = std::max<double>( 0.9, eq->Weapon->Damage )
 			             * std::max<double>( 1., weap->second * 0.6 );
+			
+			// Narc is worthless at an already-Narced target but very valuable otherwise.
+			if( eq->Weapon->Narc )
+				value = Target->Narced() ? 0. : 20.;
 			
 			// Multiply by likeliness to hit.
 			std::map<uint8_t,int8_t>::const_iterator difficulty = WeaponsInRange.find( weap->first );
@@ -447,12 +495,18 @@ void BotAIAim::ChooseWeapons( void )
 		}
 		
 		if( WeaponsToFire[ worst_index ] )
+		{
 			WeaponsToFire[ worst_index ] --;
+			total_shots --;
+		}
 		else
 			break;
 		
 		shot_heat = ShotHeat();
 	}
+	
+	// If we can't shoot anything, try spotting for indirect fire.
+	WeaponsToFire[ 0xFF ] = total_shots ? 0 : 1;
 	
 	SelectedMelee.clear();
 	if( PossibleMelee.size() )
@@ -505,6 +559,10 @@ double BotAIAim::Value( void ) const
 			              * std::max<double>( 1., eq->Weapon->ClusterWeaponSize * (fcs ? 0.8 : 0.6) )
 			              * std::max<double>( 1., weap->second * 0.6 );
 			
+			// Narc is worthless at an already-Narced target but very valuable otherwise.
+			if( eq->Weapon->Narc )
+				damage = Target->Narced() ? 0. : 20.;
+			
 			value += damage * (11. - std::max<double>( 0., difficulty->second - 2 )) / 11.;
 		}
 	}
@@ -528,7 +586,7 @@ double BotAIAim::Value( void ) const
 		// Prefer getting behind enemies.
 		uint8_t x, y;
 		From->GetPosition( &x, &y );
-		if( Target->DamageArc( x, y ) == BattleTech::Arc::REAR )
+		if( Target->DamageArc( Path.DamageFromX, Path.DamageFromY ) == BattleTech::Arc::REAR )
 			value *= 1.5;
 	}
 	

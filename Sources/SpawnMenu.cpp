@@ -8,6 +8,7 @@
 #include "HexBoard.h"
 #include "GroupBox.h"
 #include "Num.h"
+#include "GameMenu.h"
 #include <cctype>
 
 
@@ -160,94 +161,112 @@ SpawnMenu::~SpawnMenu()
 void SpawnMenu::Draw( void )
 {
 	UpdateTeams();
+	Alpha = IsTop() ? 0.75f : 0.66f;
 	Window::Draw();
 }
 
 
 bool SpawnMenu::KeyDown( SDLKey key )
 {
-	HexBoard *hex_board = (HexBoard*) Raptor::Game->Layers.Find("HexBoard");
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+	HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
 	if( hex_board && (hex_board->Selected == hex_board->MessageInput) )
 		return false;
-	else if( (key == SDLK_ESCAPE) || (key == SDLK_TAB) || (key == SDLK_RETURN) || (key == SDLK_KP_ENTER) )
+	else if( game->SelectedID && ((key == SDLK_UP) || (key == SDLK_DOWN) || (key == SDLK_LEFT) || (key == SDLK_RIGHT) || (key == SDLK_RETURN) || (key == SDLK_KP_ENTER)) )
+		return false;
+	else if( (key == SDLK_ESCAPE) || (key == SDLK_TAB) || (key == SDLK_F11) || (key == SDLK_RETURN) || (key == SDLK_KP_ENTER) )
 		Remove();
 	else if( key == SDLK_UP )
 		MechList->Clicked( SDL_BUTTON_WHEELUP );
 	else if( key == SDLK_DOWN )
 		MechList->Clicked( SDL_BUTTON_WHEELDOWN );
-	else if( (key == SDLK_PAGEUP) || (key == SDLK_LEFT) )
+	else if( key == SDLK_LEFT )
 		PrevMech();
-	else if( (key == SDLK_PAGEDOWN) || (key == SDLK_RIGHT) )
+	else if( key == SDLK_RIGHT )
 		NextMech();
+	else if( (key >= SDLK_F1) && (key <= SDLK_F15) )
+	{
+#ifdef WIN32
+		if( (key == SDLK_F4) && (game->Keys.KeyDown(SDLK_LALT) || game->Keys.KeyDown(SDLK_RALT)) )
+			return false;
+#endif
+		int teams = game->Data.PropertyAsInt("teams",2);
+		int team = key + 1 - SDLK_F1;
+		if( team > teams )
+			return false;
+		
+		std::string team_str = Num::ToString(team);
+		game->Data.Players[ game->PlayerID ]->Properties[ "team" ] = team_str;
+		
+		game->Snd.Play( game->Res.GetSound("i_select.wav") );
+		
+		Packet player_properties = Packet( Raptor::Packet::PLAYER_PROPERTIES );
+		player_properties.AddUShort( game->PlayerID );
+		player_properties.AddUInt( 1 );
+		player_properties.AddString( "team" );
+		player_properties.AddString( team_str );
+		game->Net.Send( &player_properties );
+		
+		GameMenu *gm = (GameMenu*) game->Layers.Find("GameMenu");
+		if( gm )
+			gm->Refresh( 0.3 );
+	}
+	else if( SearchBox && SearchBox->Container
+	&& ( ((key >= 'a') && (key <= 'z'))
+	  || ((key >= '0') && (key <= '9'))
+	  || ((key <= SDLK_KP0) && (key >= SDLK_KP9)) ) )
+	{
+		SearchBox->Container->Selected = SearchBox;
+		return SearchBox->KeyDown( key );
+	}
 	else if( (key >= 'a') && (key <= 'z') )
 	{
-		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 		bool shift = game->Keys.KeyDown(SDLK_LSHIFT) || game->Keys.KeyDown(SDLK_RSHIFT);
 		size_t max_loop = game->Variants.size();
 		for( size_t i = 0; i < max_loop; i ++ )
 		{
-			std::string mech = Raptor::Game->Cfg.SettingAsString("mech");
+			std::string mech = game->Cfg.SettingAsString("mech");
 			if( shift )
 			{
 				PrevMech();
-				if( mech == Raptor::Game->Cfg.SettingAsString("mech") )
+				if( mech == game->Cfg.SettingAsString("mech") )
 					MechList->Select( game->Variants.rbegin()->first );
 			}
 			else
 			{
 				NextMech();
-				if( mech == Raptor::Game->Cfg.SettingAsString("mech") )
+				if( mech == game->Cfg.SettingAsString("mech") )
 					MechList->Select( game->Variants.begin()->first );
 			}
-			mech = Raptor::Game->Cfg.SettingAsString("mech");
+			mech = game->Cfg.SettingAsString("mech");
 			if( (mech.length() >= 10) && (tolower(mech[9]) == key) )
 				break;
 		}
 	}
 	else if( (key >= '0') && (key <= '9') )
 	{
-		BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 		bool shift = game->Keys.KeyDown(SDLK_LSHIFT) || game->Keys.KeyDown(SDLK_RSHIFT);
-		std::string prev = Raptor::Game->Cfg.SettingAsString("mech");
+		std::string prev = game->Cfg.SettingAsString("mech");
 		size_t max_loop = game->Variants.size();
 		for( size_t i = 0; i < max_loop; i ++ )
 		{
-			std::string mech = Raptor::Game->Cfg.SettingAsString("mech");
+			std::string mech = game->Cfg.SettingAsString("mech");
 			if( shift )
 			{
 				PrevMech();
-				if( mech == Raptor::Game->Cfg.SettingAsString("mech") )
+				if( mech == game->Cfg.SettingAsString("mech") )
 					MechList->Select( game->Variants.rbegin()->first );
 			}
 			else
 			{
 				NextMech();
-				if( mech == Raptor::Game->Cfg.SettingAsString("mech") )
+				if( mech == game->Cfg.SettingAsString("mech") )
 					MechList->Select( game->Variants.begin()->first );
 			}
-			mech = Raptor::Game->Cfg.SettingAsString("mech");
+			mech = game->Cfg.SettingAsString("mech");
 			if( (mech.length() >= 7) && (mech[1] == key) && ((mech[1] != prev[1]) || (mech[2] != prev[2]) || (mech[6] != prev[6])) )
 				break;
 		}
-	}
-	else if( (key >= SDLK_F1) && (key <= SDLK_F15) )
-	{
-		int teams = Raptor::Game->Data.PropertyAsInt("teams",2);
-		int team = key + 1 - SDLK_F1;
-		if( team > teams )
-			return false;
-		
-		std::string team_str = Num::ToString(team);
-		Raptor::Game->Data.Players[ Raptor::Game->PlayerID ]->Properties[ "team" ] = team_str;
-		
-		Raptor::Game->Snd.Play( Raptor::Game->Res.GetSound("i_select.wav") );
-		
-		Packet player_properties = Packet( Raptor::Packet::PLAYER_PROPERTIES );
-		player_properties.AddUShort( Raptor::Game->PlayerID );
-		player_properties.AddUInt( 1 );
-		player_properties.AddString( "team" );
-		player_properties.AddString( team_str );
-		Raptor::Game->Net.Send( &player_properties );
 	}
 	else
 		return false;
@@ -456,10 +475,22 @@ SpawnMenuSearchBox::~SpawnMenuSearchBox()
 }
 
 
+bool SpawnMenuSearchBox::MouseUp( Uint8 button )
+{
+	bool was_selected = IsSelected();
+	bool handled = TextBox::MouseUp( button );
+	if( (! was_selected) && IsSelected() && Container && Container->Container )
+		Container->Container->MoveToTop();
+	return handled;
+}
+
+
 bool SpawnMenuSearchBox::KeyDown( SDLKey key )
 {
 	bool handled = TextBox::KeyDown( key );
 	
+	if( (key == SDLK_F10) && ! Raptor::Game->Layers.Find("GameMenu") )
+		Container->Selected = NULL;
 	if( (key >= SDLK_F1) && (key <= SDLK_F15) )
 		return false;
 	
@@ -472,21 +503,10 @@ void SpawnMenuSearchBox::Changed( void )
 	SpawnMenuDropDown *mech_list = ((SpawnMenu*)( Container->Container ))->MechList;
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	
-	std::list<std::string> words = Str::SplitToList( Text, " " );
-	
+	std::map< std::string, const Variant* > results = game->VariantSearch( Text );
 	mech_list->Clear();
-	for( std::map<std::string,Variant>::const_iterator var = game->Variants.begin(); var != game->Variants.end(); var ++ )
-	{
-		bool match = true;
-		for( std::list<std::string>::const_iterator word = words.begin(); word != words.end(); word ++ )
-		{
-			if( word->length() && (Str::FindInsensitive( var->first, *word ) < 0) )
-				match = false;
-		}
-		
-		if( match )
-			mech_list->AddItem( var->first, var->first );
-	}
+	for( std::map< std::string, const Variant* >::const_iterator result = results.begin(); result != results.end(); result ++ )
+		mech_list->AddItem( result->first, result->first );
 	
 	// If the previously selected variant does not match this search, select something that does.
 	std::string mech = game->Cfg.SettingAsString("mech");
@@ -551,6 +571,10 @@ void SpawnMenuJoinButton::Clicked( Uint8 button )
 	player_properties.AddString( "team" );
 	player_properties.AddString( Team );
 	Raptor::Game->Net.Send( &player_properties );
+	
+	GameMenu *gm = (GameMenu*) Raptor::Game->Layers.Find("GameMenu");
+	if( gm )
+		gm->Refresh( 0.3 );
 }
 
 

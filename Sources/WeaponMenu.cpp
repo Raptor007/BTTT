@@ -40,6 +40,8 @@ void WeaponMenu::Draw( void )
 {
 	if( ! Update( false ) )
 		return;
+	
+	Alpha = IsTop() ? 0.75f : 0.66f;
 	Window::Draw();
 	
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
