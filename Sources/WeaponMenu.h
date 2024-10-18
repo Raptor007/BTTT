@@ -10,8 +10,6 @@ class WeaponMenuDropDown;
 
 #include "PlatformSpecific.h"
 
-#include <SDL/SDL.h>
-
 #include "Window.h"
 #include "Font.h"
 #include "LabelledButton.h"
@@ -44,6 +42,8 @@ public:
 	void SetCount( uint8_t index, uint8_t count );
 	void SetWeapon( uint8_t index, uint8_t count );
 	void SetMelee( uint8_t index, uint8_t count );
+	void SetTarget( uint8_t index, uint32_t target );
+	void SetArmsFlipped( bool arms_flipped );
 	
 	void RemoveAndUntarget( void );
 };
@@ -64,6 +64,7 @@ public:
 	uint8_t EquipmentIndex;
 	
 	WeaponMenuCheckBox( SDL_Rect *rect, Font *font, Mech *mech, uint8_t equipment_index, bool checked );
+	WeaponMenuCheckBox( SDL_Rect *rect, Font *font, Mech *mech, std::string label, bool checked );
 	virtual ~WeaponMenuCheckBox();
 	void Changed( void );
 	void Draw( void );
@@ -74,8 +75,10 @@ class WeaponMenuDropDown : public DropDown
 {
 public:
 	uint8_t EquipmentIndex;
+	bool TargetSelect;
 	
 	WeaponMenuDropDown( SDL_Rect *rect, Font *font, Mech *mech, uint8_t equipment_index, uint8_t value, uint8_t maximum );
+	WeaponMenuDropDown( SDL_Rect *rect, Font *font, Mech *mech, uint8_t equipment_index, const std::vector<uint32_t> &target_ids, uint32_t selected = 0 );
 	virtual ~WeaponMenuDropDown();
 	void Changed( void );
 };

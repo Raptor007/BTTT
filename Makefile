@@ -8,12 +8,13 @@ MARCH = native
 MCPU =
 MTUNE =
 MFLAGS =
-OFLAGS = -O3 -fomit-frame-pointer -ftree-vectorize -fno-strict-aliasing -flto
+O = 2
+OFLAGS = -O$(O) -fomit-frame-pointer -ftree-vectorize -fno-strict-aliasing -flto=auto
 WFLAGS = -Wall -Wextra -Wno-multichar -Wno-unused-parameter
 INC = /opt/local/include /opt/local/include/SDL /usr/local/include /usr/include
 LIBDIR = /usr/lib64
-LIB = libSDLmain.a libSDL_net.so libSDL_mixer.so libSDL_ttf.so libSDL_image.so libSDL.so libGLEW.a libGLU.so libGL.so libopenvr_api.so
-DEF =
+LIB = libSDLmain.a libSDL_net.so libSDL_mixer.so libSDL_ttf.so libSDL_image.so libSDL.so libGLEW.so libGLU.so libGL.so
+DEF = NO_VR
 EXE = bttt
 VERSION = $(shell grep 'define VERSION' Sources/Main.cpp | grep -oh '[0-9.]*')
 GAMEDIR = /Games/BTTT
@@ -22,7 +23,7 @@ SERVERUSER = battletech
 MAC_CODESIGN = $(shell whoami)
 MAC_FRAMEWORKS = OpenGL Cocoa AudioUnit AudioToolbox IOKit Carbon
 MAC_INSTALL_NAME_TOOL = /opt/local/bin/install_name_tool
-MAC_BUNDLE_LIBS = /opt/local/lib/libgcc/libstdc++.6.dylib /opt/local/lib/libgcc/libgcc_s.1.dylib /usr/local/lib/libopenvr_api.dylib
+MAC_BUNDLE_LIBS = /opt/local/lib/libgcc/libstdc++.6.dylib /opt/local/lib/libgcc/libgcc_s.1.dylib
 MAC_PPC_ARCH = ppc
 MAC_PPC_MCPU = G3
 MAC_PPC_MTUNE = G4
@@ -98,7 +99,7 @@ endif
 
 ifneq (,$(findstring -4.0,$(CC)))
 # When using gcc 4.0, don't use link-time optimization (it's not supported) and don't use auto-vectorization because it enables strict aliasing.
-OFLAGS := $(filter-out -flto,$(OFLAGS))
+OFLAGS := $(filter-out -flto=auto,$(OFLAGS))
 OFLAGS := $(filter-out -ftree-vectorize,$(OFLAGS))
 # Don't warn about OpenVR's use of non-virtual destructors.
 WFLAGS += -Wno-non-virtual-dtor
@@ -139,11 +140,6 @@ LIBRARIES := $(patsubst %.so,%.a,$(LIBRARIES))
 # Add frameworks to Mac linker line.
 LIBRARIES += $(foreach framework,$(MAC_FRAMEWORKS),-framework $(framework))
 
-# Add openvr lib on non-PPC targets.
-ifneq ($(MAC_PPC_ARCH),$(ARCH))
-LIBRARIES += /usr/local/lib/libopenvr_api.dylib
-endif
-
 # Macs must pad install names so install_name_tool can make them longer.
 XFLAGS += -headerpad_max_install_names
 
@@ -159,9 +155,9 @@ endif
 ifneq (,$(findstring MINGW,$(UNAME))$(findstring CYGWIN,$(UNAME)))
 LDFLAGS += -static-libgcc -static-libstdc++ -lmingw32 -lSDLmain
 LIBDIR = /lib
-LIB = SDL_ttf.lib SDL_image.lib SDL_mixer.lib SDL_net.lib SDL.lib openvr_api.lib glew32s.lib GLU32.lib OpenGL32.lib bufferoverflowu.lib
+LIB = SDL_ttf.lib SDL_image.lib SDL_mixer.lib SDL_net.lib SDL.lib glew32s.lib GLU32.lib OpenGL32.lib bufferoverflowu.lib
 MFLAGS += -mwindows
-LIBRARIES += -liphlpapi -ladvapi32
+LIBRARIES += -ljpeg -lavdevice -lavformat -lavfilter -lavcodec -lavresample -lswscale -lavutil -lswresample -lws2_32 -lsecur32 -lwinmm -liphlpapi -ladvapi32 -lvfw32 /mingw/lib/libiconv.a
 EXE = BTTT.exe
 OBJECTS += build/BTTT.res
 endif
@@ -194,6 +190,28 @@ AFLAGS += -mtune=$(MTUNE)
 endif
 
 
+# Default to SDL2 if detected.
+ifndef SDL1
+ifneq (,$(wildcard $(LIBDIR)/libSDL2.so))
+SDL2 = y
+endif
+endif
+
+ifdef SDL2
+DEF += SDL2
+LIBRARIES := $(subst SDL,SDL2,$(LIBRARIES))
+endif
+
+
+# Linux ELF binary for distribution (if SDL2 detected).
+ifeq ($(UNAME),Linux)
+ifdef SDL2
+TARGET = BTTT.elf
+PRODUCT = BTTT.elf
+endif
+endif
+
+
 .PHONY: default exe objects clean install server-install ppc i32 i64 universal lipo
 
 default: $(TARGET)
@@ -210,6 +228,23 @@ default: $(TARGET)
 	$(foreach lib1,$(MAC_BUNDLE_LIBS),$(foreach lib2,$(MAC_BUNDLE_LIBS),$(MAC_INSTALL_NAME_TOOL) -change "$(lib1)" "@loader_path/$(notdir $(lib1))" "$@/Contents/MacOS/$(notdir $(lib2))";))
 	-codesign -s "$(MAC_CODESIGN)" "$@"
 	-if [ -L "$@/Contents/CodeResources" ]; then rm "$@/Contents/CodeResources"; rsync -ax "$@/Contents/_CodeSignature/CodeResources" "$@/Contents/"; fi
+
+%.elf: exe
+	rsync -ax "$(EXE)" "$@"
+	-chmod +x "$@"
+	-patchelf --add-rpath '$$ORIGIN/Bin64' "$@"
+	-patchelf --replace-needed libSDL2-2.0.so.0 Bin64/libSDL2.so "$@"
+	-patchelf --replace-needed libSDL2_image-2.0.so.0 Bin64/libSDL2_image.so "$@"
+	-patchelf --replace-needed libSDL2_mixer-2.0.so.0 Bin64/libSDL2_mixer.so "$@"
+	-patchelf --replace-needed libSDL2_net-2.0.so.0 Bin64/libSDL2_net.so "$@"
+	-patchelf --replace-needed libSDL2_ttf-2.0.so.0 Bin64/libSDL2_ttf.so "$@"
+	-patchelf --replace-needed libGL.so.1 Bin64/libGL.so "$@"
+	-patchelf --replace-needed libGLU.so.1 Bin64/libGLU.so "$@"
+	-patchelf --replace-needed libGLEW.so.2.2 Bin64/libGLEW.so "$@"
+	-patchelf --replace-needed libstdc++.so.6 Bin64/libstdc++.so "$@"
+	-patchelf --replace-needed libgcc_s.so.1 Bin64/libgcc_s.so "$@"
+	-patchelf --replace-needed libm.so.6 Bin64/libm.so "$@"
+	-patchelf --replace-needed libc.so.6 Bin64/libc.so "$@"
 
 exe: $(SOURCES) $(GAME_HEADERS) $(ENGINE_HEADERS) $(EXE)
 
@@ -246,14 +281,14 @@ install:
 
 server-install:
 	mkdir -p "$(SERVERDIR)"
-	-cp btctl "$(SERVERDIR)/"
+	cp btctl "$(SERVERDIR)/"
 	-"$(SERVERDIR)/btctl" stop
-	cp "$(EXE)" "$(SERVERDIR)/$(EXE)-$(VERSION)"
+	cp "$(EXE)" "$(SERVERDIR)/$(notdir $(EXE))-$(VERSION)"
+	cd "$(SERVERDIR)" && ln -sf "$(notdir $(EXE))-$(VERSION)" "$(notdir $(EXE))"
 	-rsync -ax --exclude=".*" *.DAT "$(SERVERDIR)/"
 	-chown -R $(SERVERUSER):wheel "$(SERVERDIR)"
-	-chmod 775 "$(SERVERDIR)/$(EXE)-$(VERSION)"
+	-chmod 775 "$(SERVERDIR)/$(notdir $(EXE))-$(VERSION)"
 	-ln -sf "$(SERVERDIR)/btctl" /usr/local/bin/btctl
-	cd "$(SERVERDIR)" && ln -sf "$(EXE)-$(VERSION)" "$(EXE)"
 	-"$(SERVERDIR)/btctl" start
 
 ppc:

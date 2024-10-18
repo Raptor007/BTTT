@@ -271,4 +271,26 @@ namespace BattleTech
 			SWORD   = BattleTech::Equipment::SWORD
 		};
 	}
+	
+	namespace Control
+	{
+		enum
+		{
+			SELECT = 1,
+			ATTACK,
+			PING,
+			MODIFIER,
+			RECORD_SHEET,
+			TARGET_RECORD_SHEET,
+			MAP_UP,
+			MAP_DOWN,
+			MAP_LEFT,
+			MAP_RIGHT,
+			MAP_CLOSER,
+			MAP_FARTHER,
+			MAP_AUTOZOOM,
+			MAP_RESET,
+			COUNT
+		};
+	}
 }

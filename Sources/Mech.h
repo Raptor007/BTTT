@@ -18,6 +18,7 @@ class MechMelee;
 #include "HeavyMetal.h"
 #include "Animation.h"
 #include "HexMap.h"
+#include "ShotPath.h"
 #include "RaptorGame.h"
 
 
@@ -75,6 +76,7 @@ public:
 	Mech *MyMech( void ) const;
 	int8_t Index( void ) const;
 	bool WithinFiringArc( uint8_t x, uint8_t y ) const;
+	bool WithinFiringArc( uint8_t x, uint8_t y, bool check_arm_flip ) const;
 	int8_t ShotModifier( uint8_t range = 0, bool stealth = false ) const;
 	uint8_t ClusterHits( uint8_t roll = 0, bool fcs = false, bool narc = false, bool ecm = false, bool indirect = false, MechEquipment *ams = NULL ) const;
 	uint8_t HitsToDestroy( void ) const;
@@ -148,10 +150,13 @@ public:
 	
 	std::vector<MechStep> Steps;
 	uint8_t MoveSpeed, StandAttempts;
+	uint32_t TaggedTarget;
+	std::map<uint8_t,uint32_t> WeaponTargets;
 	std::map<uint8_t,uint8_t> WeaponsToFire;
 	std::set<MechMelee> SelectedMelee;
 	bool TookTurn;
 	uint32_t DeclaredTarget;
+	std::map<uint8_t,uint32_t> DeclaredTargets;
 	std::map<uint8_t,uint8_t> DeclaredWeapons;
 	std::set<uint8_t> DeclaredMelee;
 	
@@ -228,14 +233,17 @@ public:
 	bool CanStand( void ) const;
 	bool Ready( void ) const;
 	bool ReadyAndAble( int phase = 0 ) const;
-	bool ReadyAndAbleNoCache( int phase ) const;
+	bool ReadyAndAbleNoCache( int phase = 0 ) const;
 	
-	int8_t WeaponRollNeeded( const Mech *target, const ShotPath *path = NULL, const MechEquipment *eq = NULL ) const;
+	int8_t WeaponRollNeeded( const Mech *target, const ShotPath *path = NULL, const MechEquipment *eq = NULL, bool secondary = false ) const;
+	int8_t SpottingModifier( const Mech *target, const ShotPath *path = NULL ) const;
+	int FiringWeapons( void ) const;
 	bool SpottingWithoutTAG( void ) const;
 	
 	std::set<MechMelee> PhysicalAttacks( const Mech *target, int8_t modifier = 0 ) const;
 	uint8_t PhysicalHitTable( uint8_t attack, const Mech *attacker = NULL ) const;
 	
+	bool HasIndirectFireWeapon( void ) const;
 	MechEquipment *FindAmmo( uint16_t eq_id = 0 );
 	uint16_t TotalAmmo( uint16_t eq_id ) const;
 	bool SpendAmmo( uint16_t eq_id );
@@ -243,7 +251,7 @@ public:
 	uint8_t IntactEquipmentCount( uint16_t eq_id ) const;
 	uint8_t ActiveProbeRange( void ) const;
 	MechEquipment *AvailableAMS( uint8_t arc );
-	bool FiredTAG( void ) const;
+	bool ArmsCanFlip( void ) const;
 	
 	void GetPosition( uint8_t *x, uint8_t *y, uint8_t *facing = NULL ) const;
 	double RelativeAngle( uint8_t x, uint8_t y, int8_t twist = 0 ) const;
@@ -262,6 +270,9 @@ public:
 	uint8_t DefenseBonus( uint8_t speed = BattleTech::Speed::INVALID, uint8_t entered = 0xFF ) const;
 	uint8_t AttackPenalty( uint8_t speed = BattleTech::Speed::INVALID ) const;
 	uint8_t MovementHeat( uint8_t speed = BattleTech::Speed::INVALID, uint8_t entered = 0xFF ) const;
+	
+	void Select( void );
+	void Deselect( void );
 	
 	void Animate( double duration, uint8_t effect = BattleTech::Effect::NONE );
 	

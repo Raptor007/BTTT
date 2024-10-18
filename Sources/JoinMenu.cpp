@@ -144,11 +144,11 @@ void JoinMenu::Draw( void )
 				{
 					// If the server version doesn't match ours, append that to the list text.
 					if( properties["version"] != Raptor::Game->Version )
-						text += " [v " + properties["version"] + "]";
+						text += " [v" + properties["version"] + "]";
 				}
 				else
 					// If the server reported no version, append a note to the list text.
-					text += " [v ?]";
+					text += " [v?]";
 				
 				// Show the number of players.
 				if( announced_players )
@@ -231,10 +231,14 @@ JoinMenuListBox::~JoinMenuListBox()
 
 void JoinMenuListBox::Changed( void )
 {
-	if( LinkedTextBox )
-		LinkedTextBox->Text = SelectedValue();
-	
-	Raptor::Game->Cfg.Settings[ Variable ] = SelectedValue();
+	std::string value = SelectedValue();
+	if( value.length() )
+	{
+		if( LinkedTextBox )
+			LinkedTextBox->Text = value;
+		
+		Raptor::Game->Cfg.Settings[ Variable ] = value;
+	}
 }
 
 
@@ -309,7 +313,7 @@ void JoinMenuHostButton::Clicked( Uint8 button )
 
 JoinMenuBackButton::JoinMenuBackButton( SDL_Rect *rect, Font *button_font ) : LabelledButton( rect, button_font, "Quit", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
 {
-	Red = 0.f;
+	Red = 0.25f;
 	Green = 0.f;
 	Blue = 0.f;
 	Alpha = 0.75f;

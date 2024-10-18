@@ -108,13 +108,15 @@ GameMenu::GameMenu( void )
 		rect.y += rect.h + SPACING;
 		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "floating_crits", "Floating Criticals" ) );
 		rect.y += rect.h + SPACING;
+		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "fail_on_2", "Snake-Eyes Always Fail" ) );
+		rect.y += rect.h + SPACING;
 		group->AddElement( new GameMenuSvCheckBox( &rect, ItemFont, "skip_tag", "Skip TAG Phase" ) );
 		rect.y += rect.h + SPACING;
 		
 		if( Raptor::Game->State <= BattleTech::State::SETUP )
 		{
 			rect.h = ItemFont->GetAscent() + 6;
-			group->AddElement( new GameMenuCommandButton( &rect, ItemFont, "map", "Randomize Map Terrain" ) );
+			group->AddElement( new GameMenuCommandButton( &rect, ItemFont, Font::ALIGN_MIDDLE_LEFT, "map", " Randomize Map Terrain" ) );
 			rect.y += rect.h + SPACING;
 		}
 		
@@ -154,12 +156,28 @@ GameMenu::GameMenu( void )
 	event_speed->AddItem( "0.5", " Event Speed: Slow" );
 	event_speed->AddItem( "0.7", " Event Speed: Medium" );
 	event_speed->AddItem( "1",   " Event Speed: Fast" );
-	event_speed->AddItem( "2",   " Event Speed: Ludicrous" );
+	event_speed->AddItem( "2",   " Event Speed: Very Fast" );
+	event_speed->AddItem( "4",   " Event Speed: Ridiculous" );
+	event_speed->AddItem( "10",  " Event Speed: Ludicrous" );
 	std::string current_speed = game->Cfg.SettingAsString("event_speed","1");
 	if( event_speed->FindItem(current_speed) < 0 )
 		event_speed->AddItem( current_speed, std::string(" Event Speed: ") + current_speed );
 	event_speed->Update();
 	group->AddElement( event_speed );
+	rect.y += rect.h + SPACING;
+	
+	GameMenuDropDown *move_speed = new GameMenuDropDown( &rect, ItemFont, "move_speed" );
+	move_speed->AddItem( "0.7", " Movement Speed: Slow" );
+	move_speed->AddItem( "1",   " Movement Speed: Medium" );
+	move_speed->AddItem( "1.5", " Movement Speed: Fast" );
+	move_speed->AddItem( "2",   " Movement Speed: Very Fast" );
+	move_speed->AddItem( "3",   " Movement Speed: Ridiculous" );
+	move_speed->AddItem( "4",   " Movement Speed: Ludicrous" );
+	current_speed = game->Cfg.SettingAsString("move_speed","1");
+	if( move_speed->FindItem(current_speed) < 0 )
+		move_speed->AddItem( current_speed, std::string(" Movement Speed: ") + current_speed );
+	move_speed->Update();
+	group->AddElement( move_speed );
 	rect.y += rect.h + SPACING;
 	
 	GameMenuDropDown *s_volume = new GameMenuDropDown( &rect, ItemFont, "s_volume" );
@@ -179,7 +197,7 @@ GameMenu::GameMenu( void )
 	rect.y += rect.h + SPACING;
 	
 	rect.h = ItemFont->GetAscent() + 2;
-	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "record_sheet_popup", "Show Record Sheet for Damage" ) );
+	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "record_sheet_popup", "Pop-up Record Sheet on Damage" ) );
 	rect.y += rect.h + SPACING;
 	group->AddElement( new GameMenuCheckBox( &rect, ItemFont, "show_ecm", "Show Relevant ECM Ranges" ) );
 	rect.y += rect.h + SPACING;
@@ -223,7 +241,7 @@ GameMenu::GameMenu( void )
 				rect.x = 10;
 				rect.w = Rect.w - rect.x * 2;
 				rect.y += rect.h + 10;
-				DefaultButton = new GameMenuCommandButton( &rect, ItemFont, "ready", "Initiate Combat" );
+				DefaultButton = new GameMenuCommandButton( &rect, ItemFont, Font::ALIGN_MIDDLE_CENTER, "ready", "Initiate Combat" );
 				AddElement( DefaultButton );
 			}
 		}
@@ -355,7 +373,7 @@ void GameMenuCloseButton::Clicked( Uint8 button )
 GameMenuDisconnectButton::GameMenuDisconnectButton( SDL_Rect *rect, Font *button_font )
 : LabelledButton( rect, button_font, "Disconnect", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
 {
-	Red = 0.f;
+	Red = 0.25f;
 	Green = 0.f;
 	Blue = 0.f;
 	Alpha = 0.75f;
@@ -380,7 +398,7 @@ void GameMenuDisconnectButton::Clicked( Uint8 button )
 GameMenuEndButton::GameMenuEndButton( SDL_Rect *rect, Font *button_font )
 : LabelledButton( rect, button_font, "End Game", Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
 {
-	Red = 0.f;
+	Red = 0.25f;
 	Green = 0.f;
 	Blue = 0.f;
 	Alpha = 0.75f;
@@ -435,8 +453,8 @@ void GameMenuSpawnButton::Clicked( Uint8 button )
 // ---------------------------------------------------------------------------
 
 
-GameMenuCommandButton::GameMenuCommandButton( SDL_Rect *rect, Font *button_font, std::string command, std::string label )
-: LabelledButton( rect, button_font, label, Font::ALIGN_MIDDLE_CENTER, NULL, NULL )
+GameMenuCommandButton::GameMenuCommandButton( SDL_Rect *rect, Font *button_font, uint8_t align, std::string command, std::string label )
+: LabelledButton( rect, button_font, label, align, NULL, NULL )
 {
 	Command = command;
 	
@@ -574,7 +592,16 @@ void GameMenuSvCheckBox::Changed( void )
 		int teams = game->Data.PropertyAsInt("teams",2);
 		
 		if( (teams == 2) && gm && gm->AITeam && (gm->AITeam->Value != "0") )
-			gm->AITeam->Select( "0" );  // FIXME: Prevent double sound.
+		{
+			gm->AITeam->Value = "0";
+			gm->AITeam->Update();
+			
+			Packet info = Packet( Raptor::Packet::INFO );
+			info.AddUShort( 1 );
+			info.AddString( "ai_team" );
+			info.AddString( "0" );
+			Raptor::Game->Net.Send( &info );
+		}
 		
 		if( Checked && (game->State >= BattleTech::State::INITIATIVE) )
 		{
@@ -662,8 +689,31 @@ void GameMenuSvDropDown::Changed( void )
 	}
 	else if( gm && (Variable == "ai_team") )
 	{
-		if( gm->Hotseat && gm->Hotseat->Checked && (teams == 2) && Str::AsInt(Value) )
-			gm->Hotseat->Clicked();  // FIXME: Prevent double sound.
+		if( Str::AsInt(Value) )
+		{
+			// Uncheck Hotseat if we have only 2 teams and one of them is AI.
+			if( (teams == 2) && gm->Hotseat && gm->Hotseat->Checked )
+			{
+				gm->Hotseat->Checked = false;
+				
+				Packet info = Packet( Raptor::Packet::INFO );
+				info.AddUShort( 1 );
+				info.AddString( "hotseat" );
+				info.AddString( "false" );
+				Raptor::Game->Net.Send( &info );
+			}
+			
+			// If we change the AI team to the player's current team, move the player to the other team.
+			if( (Raptor::Game->Data.Players[ Raptor::Game->PlayerID ]->PropertyAsString("team") == Value) && (Raptor::Game->Data.Players.size() == 1) )
+			{
+				Packet player_properties = Packet( Raptor::Packet::PLAYER_PROPERTIES );
+				player_properties.AddUShort( Raptor::Game->PlayerID );
+				player_properties.AddUInt( 1 );
+				player_properties.AddString( "team" );
+				player_properties.AddString( (Value == "1") ? "2" : "1" );
+				Raptor::Game->Net.Send( &player_properties );
+			}
+		}
 		/*
 		if( Container && Container->Container && (Container->Container->Name == "GameMenu") )
 			((GameMenu*)( Container->Container ))->Refresh( 0.3 );
@@ -676,7 +726,7 @@ void GameMenuSvDropDown::Changed( void )
 
 
 GameMenuScenarioDropDown::GameMenuScenarioDropDown( SDL_Rect *rect, Font *font )
-: DropDown( rect, font, Font::ALIGN_MIDDLE_CENTER, 0, NULL, NULL )
+: DropDown( rect, font, Font::ALIGN_MIDDLE_LEFT, 0, NULL, NULL )
 {
 	Red = 0.f;
 	Green = 0.f;
@@ -685,16 +735,14 @@ GameMenuScenarioDropDown::GameMenuScenarioDropDown( SDL_Rect *rect, Font *font )
 	
 	LoadedNames = false;
 	
-	AddItem( "", "Load Scenario..." );
+	AddItem( "", " Load Scenario..." );
 	if( DIR *dir_p = opendir("Scenarios") )
 	{
 		while( struct dirent *dir_entry_p = readdir(dir_p) )
 		{
-			if( ! dir_entry_p->d_name )
-				continue;
 			if( dir_entry_p->d_name[ 0 ] == '.' )
 				continue;
-			AddItem( dir_entry_p->d_name, dir_entry_p->d_name );
+			AddItem( dir_entry_p->d_name, std::string(" ") + std::string(dir_entry_p->d_name) );
 		}
 		closedir( dir_p );
 	}
@@ -743,8 +791,9 @@ void GameMenuScenarioDropDown::Clicked( Uint8 button )
 	
 	if( ! LoadedNames )
 	{
-		for( std::vector<ListBoxItem>::iterator item = Items.begin(); item != Items.end(); item ++ )
+		for( size_t i = 0; i < Items.size(); i ++ )
 		{
+			ListBoxItem *item = &(Items[ i ]);
 			if( item->Value.empty() )
 				continue;
 			
@@ -759,7 +808,7 @@ void GameMenuScenarioDropDown::Clicked( Uint8 button )
 					while( (*name == ' ') || (*name == '\t') )
 						name ++;
 					if( strlen(name) )
-						item->Text = name;
+						item->Text = std::string(" ") + name;
 				}
 			}
 		}

@@ -36,7 +36,7 @@ BattleTechServer::~BattleTechServer()
 
 void BattleTechServer::Started( void )
 {
-	State = BattleTech::State::SETUP;
+	Data.Lock.Lock();
 	
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
 	if( ! game->Struct.size() )
@@ -57,8 +57,8 @@ void BattleTechServer::Started( void )
 	Data.Properties[ "enhanced_flamers" ] = "true";
 	Data.Properties[ "enhanced_ams" ] = "true";
 	Data.Properties[ "floating_crits" ] = "false";
+	Data.Properties[ "fail_on_2" ] = "false";
 	Data.Properties[ "skip_tag" ] = "false";
-	Data.Properties[ "tag" ] = "false";
 	Data.Properties[ "mech_limit" ] = "0";
 	Data.Properties[ "hotseat" ] = "false";
 	Data.Properties[ "ai_team" ] = "0";
@@ -68,9 +68,14 @@ void BattleTechServer::Started( void )
 	Data.AddObject( map );
 	Console->Print( std::string("Map seed: ") + Num::ToString((int) map->Seed) );
 	
+	Data.Lock.Unlock();
+	
 	// The Windows random number generator was making me superstitious.
 	for( size_t throwaway_rolls = (time(NULL) % 4) * 2 + 1; throwaway_rolls; throwaway_rolls -- )
 		Roll::Die();
+	
+	if( State >= Raptor::State::CONNECTING )
+		State = BattleTech::State::SETUP;
 }
 
 
@@ -653,7 +658,14 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					else
 					{
 						e.Sound = "m_step.wav";
-						e.Duration = (i == steps - 1) ? 0.2f : 0.5f;
+						if( i == steps - 1 )
+							e.Duration = 0.2f;
+						else if( speed <= BattleTech::Speed::WALK )
+							e.Duration = std::max<float>( 0.2f, 0.7f - mech->WalkDist() * 0.04f );
+						else if( speed <= BattleTech::Speed::RUN )
+							e.Duration = std::max<float>( 0.2f, 0.6f - mech->WalkDist() * 0.055f );
+						else
+							e.Duration = std::max<float>( 0.2f, 0.6f - mech->WalkDist() * 0.07f );
 					}
 					Events.push( e );
 				}
@@ -674,7 +686,12 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					else
 					{
 						e.Sound = "m_turn.wav";
-						e.Duration = (i == steps - 1) ? 0.2f : 0.5f;
+						if( i == steps - 1 )
+							e.Duration = 0.2f;
+						else if( speed <= BattleTech::Speed::WALK )
+							e.Duration = std::max<float>( 0.2f, 0.7f - mech->WalkDist() * 0.04f );
+						else
+							e.Duration = std::max<float>( 0.2f, 0.6f - mech->WalkDist() * 0.05f );
 					}
 					Events.push( e );
 				}
@@ -698,7 +715,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 				
 				e.ShowFacing( mech->Facing );
 				e.Sound = "m_jump.wav";
-				e.Duration = 2.f;
+				e.Duration = 1.5f + mech->Tons * 0.01f;
 				e.Text = mech->ShortFullName() + std::string(" is jumping.");
 				e.ShowStat( BattleTech::Stat::HEAT_MASC_SC );
 			}
@@ -876,7 +893,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		bool enhanced_flamers = Data.PropertyAsBool("enhanced_flamers");
 		
 		from->TorsoTwist = packet->NextChar();
-		from->TurnedArm  = packet->NextChar();
+		from->TurnedArm  = packet->NextChar();  // FIXME: Move to each shot?
 		from->ProneFire  = packet->NextChar();
 		
 		uint8_t count_and_flags = packet->NextUChar();
@@ -888,6 +905,7 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 		uint8_t  eq_indices    [ 128 ] = {0};
 		uint8_t  fire_counts   [ 128 ] = {0};
 		int8_t   difficulties  [ 128 ] = {0};
+		std::vector<uint32_t> unique_targets;
 		
 		for( uint8_t i = 0; i < count; i ++ )
 		{
@@ -896,13 +914,16 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			eq_indices    [ i ] = packet->NextUChar();
 			fire_counts   [ i ] = packet->NextUChar();
 			difficulties  [ i ] = packet->NextChar();
+			
+			if( unique_targets.empty() || (unique_targets.back() != target_ids[ i ]) )
+				unique_targets.push_back( target_ids[ i ] );
 		}
 		
 		Event e( from );
 		e.Effect = BattleTech::Effect::BLINK;
 		if( State != BattleTech::State::TAG )
 		{
-			e.Text = from->ShortFullName() + std::string(" has declared ") + Num::ToString((int)count) + std::string((count == 1)?" weapon to fire.":" weapons to fire.");
+			e.Text = from->ShortFullName() + std::string(" has declared ") + Num::ToString((int)count) + std::string((count == 1)?" weapon to fire.":" weapons to fire."); // FIXME: unique_targets
 			Packet events( BattleTech::Packet::EVENTS );
 			bool show_twist = from->TorsoTwist || (from->TurnedArm != BattleTech::Loc::UNKNOWN) || from->ArmsFlipped || (from->ProneFire != BattleTech::Loc::UNKNOWN);
 			events.AddUShort( 1 + count + (show_twist ? 1 : 0) );
@@ -1004,6 +1025,9 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			
 			// FIXME: This is accurate for Hypervelocity AC but not Caseless AC.
 			uint8_t explode_on = (eq->Weapon->SnakeEyesEffect & 0x02) ? 2 : 0;
+			
+			if( (difficulty < 3) && Data.PropertyAsBool("fail_on_2") )
+				difficulty = 3;
 			
 			uint8_t hit_roll = Roll::Dice( 2 );
 			
@@ -1222,10 +1246,9 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 					if( eq->Weapon->TAG )
 					{
 						target->Tagged = true;
+						from->TaggedTarget = target->ID;
 						
-						// NOTE: SpottingWithoutTAG should never be true here because WeaponsToFire is client-side, but check just in case.
-						int8_t spotted = from->WeaponRollNeeded( target ) + 1 - (from->SpottingWithoutTAG() ? 1 : 0) - from->GunnerySkill - from->HeatFire;
-						
+						int spotted = from->SpottingModifier( target );
 						if( spotted < target->Spotted )
 							target->Spotted = spotted;
 						
@@ -1408,6 +1431,9 @@ bool BattleTechServer::ProcessPacket( Packet *packet, ConnectedClient *from_clie
 			
 			if( ! target )
 				break;
+			
+			if( (difficulty < 3) && Data.PropertyAsBool("fail_on_2") )
+				difficulty = 3;
 			
 			e.Sound = "w_melee.wav";
 			e.Text = from->ShortFullName();
@@ -1758,7 +1784,6 @@ void BattleTechServer::ChangeState( int state )
 			e.Duration = 2.f;
 			for( std::map<uint16_t,Player*>::const_iterator player = Data.Players.begin(); player != Data.Players.end(); player ++ )
 			{
-				// FIXME: Set sound to b_win/b_fail and send to specific players!
 				uint8_t team = player->second->PropertyAsInt("team");
 				if( team && ! AI.ControlsTeam(team) )
 					e.Sound = (team == winner) ? "b_win.wav" : "b_fail.wav";
@@ -2111,7 +2136,7 @@ double BattleTechServer::SendEvents( void )
 }
 
 
-std::string BattleTechServer::TeamName( uint8_t team_num ) const
+std::string BattleTechServer::TeamName( uint8_t team_num )
 {
 	return Data.PropertyAsString( std::string("team") + Num::ToString((int)team_num), (std::string("Team ") + Num::ToString((int)team_num)).c_str() );
 }
@@ -2129,7 +2154,7 @@ HexMap *BattleTechServer::Map( void )
 }
 
 
-bool BattleTechServer::FF( void ) const
+bool BattleTechServer::FF( void )
 {
 	return Data.PropertyAsBool("ff");
 }

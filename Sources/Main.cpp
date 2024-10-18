@@ -2,7 +2,7 @@
  *  Main.cpp
  */
 
-#define VERSION "0.9.7 Beta"
+#define VERSION "0.9.8 Beta"
 
 #include "BattleTechGame.h"
 #include "BattleTechServer.h"
@@ -43,18 +43,16 @@ int main( int argc, char **argv )
 	Raptor::Server = new BattleTechServer( VERSION );
 	Raptor::Game->Console.OutFile = stdout;
 	Raptor::Game->SetServer( Raptor::Server );
+	Raptor::Game->Initialize( argc, argv );
 	
 	if( ! dedicated )
-	{
-		Raptor::Game->Initialize( argc, argv );
 		Raptor::Game->Run();
-	}
 	else
 	{
 		Raptor::Server->Console = new ServerConsole();
 		Raptor::Server->Console->OutFile = stdout;
 		Raptor::Server->Data.Properties[ "permissions" ] = "all";
-		Raptor::Server->Start( "Dedicated Server" );
+		Raptor::Server->Start( Raptor::Game->Cfg.SettingAsString( "sv_name", "Dedicated Server", "Dedicated Server" ) );
 		((ServerConsole*)( Raptor::Server->Console ))->Run();
 	}
 	

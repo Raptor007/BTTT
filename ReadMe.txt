@@ -1,6 +1,6 @@
 -------------------------------------------------
 |           BTTT: BattleTech TableTop           |
-|            0.9.7 Beta (2022-11-11)            |
+|            0.9.8 Beta (2024-10-18)            |
 |          by Raptor007 (Blair Sherman)         |
 |           http://raptor007.com/bttt/          |
 -------------------------------------------------
@@ -35,7 +35,7 @@ Game Settings / Optional Rules:
 * Enhanced Flamers: Flamers deal both heat and damage. [BattleMech Manual p.99]
 * Enhanced Missile Defense: AMS-reduced cluster below 2 misses. [BattleMech Manual p.116]
 * Floating Criticals: Roll new location after rolling 2 to crit. [BattleMech Manual p.45]
-* Skip TAG Phase: Disable TAG; skip to Weapon Attack phase even when TAG could be used.
+* Snake-Eyes Always Fail: When rolling pass/fail such as attack or PSR, rolling 2 fails.
 
 Getting Started:
 * After hosting or joining a game, click the Team/Mech button.
@@ -52,6 +52,8 @@ Gameplay Controls:
 * Backspace will undo your movement one step at a time.
 * Enter submits your turn (on any phase).
 * Right-click to aim during the TAG, Weapon Attack, or Physical Attack phases.
+* Shift-right-click allows selecting secondary Weapon Attack targets.
+* With multiple targets selected, left-click changes primary target.
 * Left and right arrow keys adjust torso twist during Weapon Attack phase.
 * WASD moves the map, R/F zooms in/out, Q/Home resets view, and E zooms to active area.
 * I displays record sheet for the selected mech, and O for the right-click aim target.
@@ -71,7 +73,6 @@ Known Issues:
 * Cannot choose HE or ER ammo for ATM.
 * Cannot choose cluster ammo for LB-X AC.
 * Ammo should be consumed at attack declaration, not resolution. [BattleMech Manual p.31]
-* Multiple attack target selection is not implemented.
 * Aimed shots are not implemented. [BattleMech Manual p.30]
 * Club, push, charge, and DFA physical attacks are not implemented.
 * CASE II should make an additional roll of 8+ to check any critical hits.
@@ -105,7 +106,8 @@ Troubleshooting:
  - Use the Terminal to remove the Quarantine flag from the directory:
     xattr -dr com.apple.quarantine "/Applications/BTTT"
 * Mac will not allow a downloaded or unsigned application to run.
- - Use the Terminal to enable "allow apps downloaded from anywhere":
+ - One user reported they can just right-click BTTT.app and choose Run.
+ - If that fails, use the Terminal to enable "allow apps downloaded from anywhere":
     sudo spctl --master-disable
 * When starting the game, "Loading Mechs" is sometimes very slow.
  - Move BTTT to an SSD or remove some files from the Mechs folder.
@@ -130,10 +132,24 @@ Frequently Asked Questions (FAQ):
    When I later decided to make BTTT, it made sense to try using the Mech variant files
    I already had instead of tediously copying these stats from rulebooks.
 * Will there be a mobile/tablet port?
- - Maybe someday, but no promises.  I do have an Android phone now but prefer PC gaming.
-   BTTT and RaptorEngine are both open source C++, so you are welcome to try porting it.
-   You would probably need to ditch my SDL 1.2 bindings for SDL2, rework a few older GL
-   calls that are not available in OpenGLES, and replace keyboard controls with touch.
+ - Unlikely because I do not game on my phone nor own a tablet.  The good news is my
+   code is all open source portable C++03 using SDL2, so you would probably just need
+   to add event handlers for SDL2 touch input and then compile with the Android NDK.
+   If you have a Steam Deck, it could probably run BTTT.elf (the Linux build).
+
+Version 0.9.8 Beta (2024-10-18):
+* Now includes Linux binary (ELF x86_64).
+* Engine updated to utilize SDL2 on Windows/Linux builds.
+* Fixed losing sync when playing over the internet.
+* Textboxes read unicode text input events instead of raw key down/up.
+* Game messages scroll instead of displaying only one line at a time.
+* Can now select secondary attack targets via shift-right-click.
+* Fixed "cannot Physical Attack this turn" when attacks should be possible.
+* Fixed some issues with LRM Indirect Fire and TAG. [BattleMech Manual p.31]
+* Fixed weapon to-hit values during Movement Phase.  Unmoved targets are marked*.
+* Fixed rare draw order glitches (dead Mech drawn on top) while playing events.
+* Run/walk animations are scaled by declared movement and Mech top speed.
+* Added "Snake-Eyes Always Fail" optional house rule.
 
 Version 0.9.7 Beta (2022-11-11):
 * Aiming exactly along hex edge now chooses one alternate path. [BattleMech Manual p.22]
@@ -151,6 +167,7 @@ Version 0.9.7 Beta (2022-11-11):
 * When the battle ends, Betty now announces mission successful or failed.
 * Moved custom designs to "Mechs (Disabled)".  Move them to "Mechs" to display in menu.
 * Defined texture data for every included stock Mech, though some could use improvement.
+
 Version 0.9.6 Beta (2022-07-07):
 * The new Biome setting changes map colors, and you can edit MapBiome.ini to customize.
 * Clicking any Mech that has declared attacks now shows the attacks and to-hit rolls.
@@ -160,6 +177,7 @@ Version 0.9.6 Beta (2022-07-07):
 * Fixed bug that allowed Mechs with jump jets to run up L3+ hills as Minimum Movement.
 * Fixed AI using torso twist when unnecessary (no shots) or illegal (unconscous).
 * Clarified setup prompts, especially when using AI teams.
+
 Version 0.9.5 Beta (2022-06-22):
 * Attack and defense modifiers are displayed while planning movement.
 * Declared attacks now show what they are targeting.
@@ -175,6 +193,7 @@ Version 0.9.5 Beta (2022-06-22):
 * AI now avoids running/jumping when its Mech has damaged Gyro/Hip/Actuators.
 * Ludicrous Speed now has better looking animations.
 * Added and improved some Mech texture definitions.
+
 Version 0.9.4 Beta (2022-03-14):
 * Fixed to-hit previews in Movement phase not adding walk/run/jump attack modifier.
 * Fixed non-explosive ammo (Gauss) still being usable after critical hit.
@@ -185,12 +204,14 @@ Version 0.9.4 Beta (2022-03-14):
 * Enabling hotseat mode mid-game switches your team to the current turn.
 * Default game settings no longer limit to 1 Mech per player.
 * Defined texture information for even more Mechs.
+
 Version 0.9.3 Beta (2022-02-22):
 * Added rudimentary AI code so you can play against the computer.
 * Can preview to-hit rolls during Movement phase by right-clicking potential targets.
 * Mech variant list in spawn menu is now searchable.
 * The number of teams can now be changed in the setup menu.
 * Defined texture information for more Mechs.
+
 Version 0.9.2 Beta (2022-01-22):
 * Added Record Sheet info windows.  Press I to view for selected Mech, O for target.
 * Run/walk is now declared when standing.  Up arrow to stand running, down for walking.
@@ -206,6 +227,7 @@ Version 0.9.2 Beta (2022-01-22):
 * Mostly implemented CASE II, Laser/Compact Heat Sinks, and Mechanical Jump Boosters.
 * Improved compatibility with some HeavyMetal Pro variant files.
 * Other small improvements such as draggable windows and middle-click to drag the map.
+
 Version 0.9.1 Beta (2021-09-19):
 * Chat appears on screen, and you can press T to type a message.
 * Improved map graphics to look like alpine/grasslands, and other minor visual tweaks.
@@ -217,5 +239,6 @@ Version 0.9.1 Beta (2021-09-19):
 * Like physical attack, TAG is automatically skipped when there are no valid targets.
 * Spotting for indirect fire is announced when declared, not while resolving attacks.
 * Remote players can change game options on a dedicated server.
+
 Version 0.9 Beta (2021-09-01):
 * First release.

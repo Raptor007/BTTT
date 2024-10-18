@@ -8,6 +8,7 @@
 #include "Rand.h"
 #include <algorithm>
 #include <cmath>
+#include "BattleTechGame.h"
 
 
 BotAI::BotAI( void )
@@ -28,7 +29,7 @@ void BotAI::Update( double dt )
 	{
 		Waited = 0.;
 		
-		if( ControlsTeam() )
+		if( ControlsTeam() && (((BattleTechGame*)( Raptor::Game ))->Events.size() < 1000) )  // Sanity check to prevent AI vs AI spamming event queue.
 			TakeTurn();
 	}
 }
@@ -361,8 +362,12 @@ void BotAIAim::Initialize( Mech *from, const Mech *target, int state, const HexM
 	
 	uint8_t x, y;
 	From->GetPosition( &x, &y );
-	Path = map->Path( x, y, Target->X, Target->Y );
 	double angle = From->RelativeAngle( Target->X, Target->Y );
+	
+	if( Paths.empty() )
+		Paths.push_back( map->Path( x, y, Target->X, Target->Y ) );
+	else
+		Paths[0] = map->Path( x, y, Target->X, Target->Y );
 	
 	if( State == BattleTech::State::MOVEMENT )
 	{
@@ -586,7 +591,7 @@ double BotAIAim::Value( void ) const
 		// Prefer getting behind enemies.
 		uint8_t x, y;
 		From->GetPosition( &x, &y );
-		if( Target->DamageArc( Path.DamageFromX, Path.DamageFromY ) == BattleTech::Arc::REAR )
+		if( Target->DamageArc( Paths[0].DamageFromX, Paths[0].DamageFromY ) == BattleTech::Arc::REAR )
 			value *= 1.5;
 	}
 	
@@ -642,8 +647,8 @@ bool BotAIAim::operator < ( const BotAIAim &other ) const
 	if( PossibleMelee.size() != other.PossibleMelee.size() )
 		return (PossibleMelee.size() > other.PossibleMelee.size());
 	
-	if( Path.Distance != other.Path.Distance )
-		return (Path.Distance < other.Path.Distance );
+	if( Paths[0].Distance != other.Paths[0].Distance )
+		return (Paths[0].Distance < other.Paths[0].Distance );
 	
 	return (Target < other.Target);
 }

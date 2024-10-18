@@ -28,7 +28,8 @@ public:
 	
 	double X, Y, Zoom;
 	uint8_t TeamTurn;
-	uint32_t SelectedID, TargetID;
+	uint32_t SelectedID, TargetID; // FIXME: Remove TargetID?
+	std::vector< uint32_t > TargetIDs;
 	std::queue< Event > Events;
 	Clock EventClock;
 	Clock SoundClock;
@@ -55,6 +56,7 @@ public:
 	
 	bool HandleEvent( SDL_Event *event );
 	bool HandleCommand( std::string cmd, std::vector<std::string> *params = NULL );
+	void MessageReceived( std::string text, uint32_t type = TextConsole::MSG_NORMAL );
 	bool ProcessPacket( Packet *packet );
 	
 	void ChangeState( int state );
@@ -64,18 +66,26 @@ public:
 	
 	HexMap *Map( void );
 	bool PlayingEvents( void ) const;
-	bool Hotseat( void ) const;
-	bool FF( void ) const;
+	bool Hotseat( void );
+	bool FF( void );
 	bool Admin( void );
 	bool ReadyToBegin( void );
+	
 	Mech *MyMech( void );
 	uint8_t TeamsAlive( void ) const;
 	uint8_t MyTeam( void );
-	std::string TeamName( uint8_t team_num ) const;
-	bool BotControlsTeam( uint8_t team_num ) const;
+	std::string TeamName( uint8_t team_num );
+	bool BotControlsTeam( uint8_t team_num );
+	
 	Mech *GetMech( uint32_t mech_id );
 	Mech *SelectedMech( void );
 	Mech *TargetMech( void );
+	std::vector<Mech*> TargetMechs( void );
+	int TargetNum( uint32_t target_id ) const;
+	void SelectMech( Mech *mech );
+	void DeselectMech( void );
+	void SetPrimaryTarget( uint32_t target_id = 0 );
+	
 	void GetPixel( const Pos3D *pos, int *x, int *y );
 	std::string PhaseName( int state = -1 ) const;
 };

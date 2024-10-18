@@ -19,9 +19,9 @@
 	<key>CFBundleSignature</key>
 	<string>BTTT</string>
 	<key>CFBundleVersion</key>
-	<string>0.9.7</string>
+	<string>0.9.8</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.9.7 Beta</string>
+	<string>0.9.8 Beta</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>CFBundleIconFile</key>

@@ -5,13 +5,14 @@
 #pragma once
 class Hex;
 class HexTouch;
-class ShotPath;
 class HexMap;
 
 #include "PlatformSpecific.h"
 
+#include <ctime>
 #include "GameObject.h"
 #include "Mech.h"
+#include "ShotPath.h"
 
 
 class Hex
@@ -38,25 +39,6 @@ public:
 	HexTouch( const Hex *hex, uint8_t forest, uint8_t cover );
 	virtual ~HexTouch();
 	bool operator < ( const HexTouch &other ) const;
-};
-
-
-class ShotPath : public std::vector<const Hex*>
-{
-public:
-	int Distance;
-	int Modifier;
-	bool LineOfSight;
-	bool PartialCover;
-	bool LegWeaponsBlocked;
-	std::map<uint32_t,uint8_t> ECM;
-	uint8_t DamageFromX, DamageFromY;
-	Vec2D Offset;
-	
-	ShotPath( void );
-	virtual ~ShotPath();
-	void Clear( void );
-	bool ECMvsTeam( uint8_t team ) const;
 };
 
 

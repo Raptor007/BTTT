@@ -236,12 +236,32 @@ int8_t MechEquipment::Index( void ) const
 bool MechEquipment::WithinFiringArc( uint8_t x, uint8_t y ) const
 {
 	const Mech *mech = MyMech();
+	return WithinFiringArc( x, y, mech && mech->ClientSide() && (Raptor::Game->State == BattleTech::State::WEAPON_ATTACK) );
+}
+
+
+bool MechEquipment::WithinFiringArc( uint8_t x, uint8_t y, bool check_arm_flip ) const
+{
+	const Mech *mech = MyMech();
 	bool leg_mounted = Location && Location->IsLeg;
 	uint8_t firing_arc = mech->FiringArc( x, y, ! leg_mounted );
 	
-	// Don't allow arm flipping with torso twist or when prone.
-	if( (firing_arc == BattleTech::Arc::REAR) && Location && Location->IsArm() && (WeaponArcs.size() > 1) && (mech->TorsoTwist || mech->Prone) )
-		return false;
+	if( Location && Location->IsArm() )
+	{
+		if( WeaponArcs.size() > 1 )
+		{
+			// Don't allow arm flipping with torso twist or when prone.
+			if( (firing_arc == BattleTech::Arc::REAR) && (mech->TorsoTwist || mech->Prone) )
+				return false;
+			
+			// Flipped arms can only target rear arc; non-flipped arms may not target rear.
+			if( check_arm_flip && mech && (mech->ArmsFlipped != (firing_arc == BattleTech::Arc::REAR)) )
+				return false;
+		}
+		// Not sure if rear-facing arm-mounted weapons exist, but if so this section should handle them correctly.
+		else if( check_arm_flip && WeaponArcs.count(BattleTech::Arc::REAR) && mech && (mech->ArmsFlipped == (firing_arc == BattleTech::Arc::REAR)) )
+			return false;
+	}
 	
 	return WeaponArcs.count( firing_arc );
 }
@@ -1119,6 +1139,7 @@ Mech::Mech( uint32_t id ) : GameObject( id, BattleTech::Object::MECH )
 	ActiveStealth = false;
 	Spotted = 99;
 	Tagged = false;
+	TaggedTarget = 0;
 	PhaseDamage = 0;
 	PSRModifier = 0;
 	MoveSpeed = 0;
@@ -1438,6 +1459,8 @@ void Mech::AddToUpdatePacketFromServer( Packet *packet, int8_t precision )
 		{
 			packet->AddUChar( declared->first );
 			packet->AddUChar( declared->second );
+			std::map<uint8_t,uint32_t>::const_iterator target = DeclaredTargets.find( declared->first );
+			packet->AddUInt( (target != DeclaredTargets.end()) ? target->second : DeclaredTarget );
 		}
 		packet->AddUChar( DeclaredMelee.size() );
 		for( std::set<uint8_t>::const_iterator declared = DeclaredMelee.begin(); declared != DeclaredMelee.end(); declared ++ )
@@ -1508,11 +1531,13 @@ void Mech::ReadFromUpdatePacketFromServer( Packet *packet, int8_t precision )
 			}
 		}
 		
-		for( std::vector<MechEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
+		for( size_t i = 0; i < Equipment.size(); i ++ )
 		{
+			MechEquipment *eq = &(Equipment[ i ]);
+			
 			uint8_t damage_and_jam = packet->NextUChar();
 			eq->Damaged = damage_and_jam & 0x7F;
-			eq->Jammed = damage_and_jam & 0x80;
+			eq->Jammed  = damage_and_jam & 0x80;
 			
 			eq->Ammo = packet->NextUShort();
 		}
@@ -1529,13 +1554,14 @@ void Mech::ReadFromUpdatePacketFromServer( Packet *packet, int8_t precision )
 		HeatFire = (heat_effects & 0xF0) >> 4;
 		
 		uint32_t declared_target = packet->NextUInt();
-		
 		uint8_t shot_count = packet->NextUChar();
 		std::map<uint8_t,uint8_t> declared_weapons;
+		std::map<uint8_t,uint32_t> declared_targets;
 		for( uint8_t i = 0; i < shot_count; i ++ )
 		{
 			uint8_t weapon_id = packet->NextUChar();
 			declared_weapons[ weapon_id ] = packet->NextUChar();
+			declared_targets[ weapon_id ] = packet->NextUInt();
 		}
 		
 		uint8_t melee_count = packet->NextUChar();
@@ -1551,6 +1577,7 @@ void Mech::ReadFromUpdatePacketFromServer( Packet *packet, int8_t precision )
 		else
 		{
 			DeclaredTarget  = declared_target;
+			DeclaredTargets = declared_targets;
 			DeclaredWeapons = declared_weapons;
 			DeclaredMelee   = declared_melee;
 		}
@@ -1724,8 +1751,9 @@ void Mech::SetVariant( const Variant &variant )
 	
 	if( targeting_computer )
 	{
-		for( std::vector<MechEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
+		for( size_t i = 0; i < Equipment.size(); i ++ )
 		{
+			MechEquipment *eq = &(Equipment[ i ]);
 			if( eq->Weapon && eq->Weapon->CanUseTargetingComputer )
 				eq->WeaponTC = targeting_computer;
 		}
@@ -2147,7 +2175,7 @@ uint8_t Mech::PSRModifiers( void ) const
 
 bool Mech::PilotSkillCheck( std::string reason, int8_t modifier, bool fall )
 {
-	uint8_t need = PilotSkill + PSRModifiers() + modifier;
+	int8_t need = PilotSkill + PSRModifiers() + modifier;
 	
 	uint8_t leg_count = 0, legs_destroyed = 0;
 	for( size_t i = 0; i < BattleTech::Loc::COUNT; i ++ )
@@ -2160,14 +2188,16 @@ bool Mech::PilotSkillCheck( std::string reason, int8_t modifier, bool fall )
 		}
 	}
 	
+	BattleTechServer *server = (BattleTechServer*) Raptor::Server;
+	
 	// Shutdown 'Mechs automatically fail piloting checks.
 	if( fall && Shutdown )
 		need = 99;
 	// Prone quads do not need to make a pilot check to stand unless a leg has been destroyed.
 	else if( fall && Prone && (leg_count == 4) && ! legs_destroyed )
 		need = 0;
-	
-	BattleTechServer *server = (BattleTechServer*) Raptor::Server;
+	else if( (need < 3) && server->Data.PropertyAsBool("fail_on_2") )
+		need = 3;
 	
 	bool passed = false;
 	if( (need <= 12) && (! Unconscious) && !(fall && AutoFall.length()) )
@@ -2252,6 +2282,7 @@ void Mech::Fall( int8_t psr_modifier )
 	e1.Sound = "m_fall.wav";
 	e1.ShowFacing( Facing, true );
 	e1.Text = ShortFullName() + std::string(" fell!  Direction roll ") + Num::ToString((int)dir) + std::string(" falls ") + dir_str + std::string(".");
+	e1.Duration = 0.6f + Tons * 0.01f;
 	server->Events.push( e1 );
 	
 	MechLocationRoll lr = LocationRoll( hit_arc );
@@ -2470,7 +2501,8 @@ bool Mech::ReadyAndAble( int phase ) const
 bool Mech::ReadyAndAbleNoCache( int phase ) const
 {
 	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
-	bool ff = ClientSide() ? game->FF() : ((const BattleTechServer*)( Raptor::Server ))->FF();
+	BattleTechServer *server = (BattleTechServer*) Raptor::Server;
+	bool ff = ClientSide() ? game->FF() : server->FF();
 	
 	if( ! Ready() )
 		return false;
@@ -2490,28 +2522,57 @@ bool Mech::ReadyAndAbleNoCache( int phase ) const
 			return false;
 		
 		const MechEquipment *tag = NULL;
-		for( std::vector<MechEquipment>::const_iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
+		for( size_t i = 0; i < Equipment.size(); i ++ )
 		{
+			const MechEquipment *equip = &(Equipment[ i ]);
 			if( equip->Weapon && equip->Weapon->TAG && ! equip->Damaged && (! tag || (tag->Weapon->RangeLong < equip->Weapon->RangeLong)) )
-				tag = &*equip;
+				tag = equip;
 		}
 		if( ! tag )
 			return false;
 		
+		HexMap *map = ClientSide() ? game->Map() : server->Map();
+		
 		for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data->GameObjects.begin(); obj_iter != Data->GameObjects.end(); obj_iter ++ )
 		{
-			if( obj_iter->second->Type() == BattleTech::Object::MECH )
+			if( obj_iter->second->Type() != BattleTech::Object::MECH )
+				continue;
+			
+			const Mech *target = (const Mech*) obj_iter->second;
+			if( target == this )
+				continue;
+			if( Team && (target->Team == Team) && ! ff )
+				continue;
+			if( target->Destroyed() )
+				continue;
+			if( WeaponRollNeeded( target, NULL, tag ) > 12 )
+				continue;
+			
+			bool friendly_needs_spotting = false;
+			for( std::map<uint32_t,GameObject*>::const_iterator obj_iter2 = Data->GameObjects.begin(); obj_iter2 != Data->GameObjects.end(); obj_iter2 ++ )
 			{
-				const Mech *target = (const Mech*) obj_iter->second;
-				if( Team && (target->Team == Team) && ! ff )
+				if( obj_iter2->second->Type() != BattleTech::Object::MECH )
 					continue;
-				if( target->Destroyed() )
+				
+				const Mech *friendly = (const Mech*) obj_iter2->second;
+				if( (friendly == this) || (friendly == target) )
 					continue;
-				if( WeaponRollNeeded( target, NULL, tag ) > 12 )
+				if( friendly->Team != Team )
 					continue;
-				// FIXME: Make sure there are teammates with LRMs within range that do not have line of sight.
-				return true;
+				if( friendly->Unconscious || friendly->Shutdown || friendly->Destroyed() )
+					continue;
+				if( ! friendly->HasIndirectFireWeapon() )
+					continue;
+				
+				ShotPath path = map->Path( friendly->X, friendly->Y, target->X, target->Y );
+				if( ! path.LineOfSight )
+				{
+					friendly_needs_spotting = true;
+					break;
+				}
 			}
+			
+			return friendly_needs_spotting;
 		}
 		return false;
 	}
@@ -2543,7 +2604,7 @@ bool Mech::ReadyAndAbleNoCache( int phase ) const
 }
 
 
-int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const MechEquipment *eq ) const
+int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const MechEquipment *eq, bool secondary ) const
 {
 	if( Unconscious || Shutdown || Destroyed() )
 		return 99;
@@ -2579,13 +2640,29 @@ int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const M
 	uint8_t defense = /* (semiguided && target->Tagged) ? 0 : */ target->Defense;
 	int8_t spotted  = /* (semiguided && target->Tagged) ? 0 : */ target->Spotted;
 	
+	int8_t attack = Attack;
+	if( ClientSide() && (Raptor::Game->State == BattleTech::State::MOVEMENT) && ! TookTurn )
+	{
+		uint8_t speed = SpeedNeeded();
+		if( speed == BattleTech::Speed::INVALID )
+			return 99;
+		else if( speed == BattleTech::Speed::JUMP )
+			attack = 3;
+		else if( speed >= BattleTech::Speed::RUN )
+			attack = 2;
+		else if( speed >= BattleTech::Speed::WALK )
+			attack = 1;
+		else
+			attack = 0;
+	}
+	
 	int8_t extra = 0;
 	if( target->Prone )
 		extra += (path->Distance <= 1) ? -2 : 1;
 	if( Sensors )
 		extra += Sensors->Damaged * 2;
 	
-	int8_t difficulty = GunnerySkill + HeatFire + Attack + defense + path->Modifier + extra;
+	int8_t difficulty = GunnerySkill + HeatFire + attack + defense + path->Modifier + extra;
 	if( eq )
 		difficulty += eq->ShotModifier( path->Distance, target->ActiveStealth );
 	
@@ -2600,7 +2677,7 @@ int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const M
 		if( trees && (! ecm) && (path->Distance <= ActiveProbeRange()) )
 			difficulty --;
 	}
-	else if( lrm && (target->Spotted < 99) )
+	else if( lrm && (target->Spotted < 99) )  // LRM Indirect Fire [BattleMech Manual p.30]
 		difficulty = GunnerySkill + HeatFire + Attack + defense + spotted + eq->ShotModifier( path->Distance, target->ActiveStealth );
 	else if( lrm && target->Narced() && ! ecm )
 		difficulty = GunnerySkill + HeatFire + Attack + defense + 1 + extra + eq->ShotModifier( path->Distance, target->ActiveStealth );
@@ -2610,17 +2687,112 @@ int8_t Mech::WeaponRollNeeded( const Mech *target, const ShotPath *path, const M
 	if( target->Immobile() )
 		difficulty -= 4;
 	
+	if( secondary )
+		difficulty += (FiringArc( target->X, target->Y ) == BattleTech::Arc::FRONT) ? 1 : 2;
+	
 	return difficulty;
 }
 
 
-bool Mech::SpottingWithoutTAG( void ) const
+int8_t Mech::SpottingModifier( const Mech *target, const ShotPath *path ) const
 {
+	if( Unconscious || Shutdown || Destroyed() )
+		return 99;
+	if( ! target )
+		return 99;
+	
+	ShotPath p;
+	if( ! path )
+	{
+		HexMap *map = ClientSide() ? ((BattleTechGame*)( Raptor::Game ))->Map() : ((BattleTechServer*)( Raptor::Server ))->Map();
+		uint8_t x, y;
+		GetPosition( &x, &y );
+		p = map->Path( x, y, target->X, target->Y );
+		path = &p;
+	}
+	
+	if( ! path->LineOfSight )
+		return 99;
+	
+	int8_t extra = 1;  // +1 for indirect fire. [BattleMech Manual p.30]
+	if( target->Prone )
+		extra += (path->Distance <= 1) ? -2 : 1;
+	if( Sensors )
+		extra += Sensors->Damaged * 2;
+	
+	int8_t difficulty = Attack + path->Modifier + extra;
+	
+	int8_t trees = path->PartialCover ? (path->Modifier - 1) : path->Modifier;
+	if( trees && (path->Distance <= ActiveProbeRange()) && ! path->ECMvsTeam( Team ) )
+		difficulty --;
+	
+	int state = ClientSide() ? Raptor::Game->State : Raptor::Server->State;
+	if( (state != BattleTech::State::TAG) && (! TaggedTarget) && FiringWeapons() )
+		difficulty ++;
+	
+	return difficulty;
+}
+
+
+int Mech::FiringWeapons( void ) const
+{
+	int firing = 0;
+	
+	// FIXME: Most of this function feels like a dirty hack, starting here.
+	BattleTechGame *game = ClientSide() ? ((BattleTechGame*) Raptor::Game ) : NULL;
+	HexBoard *hex_board = game ? ((HexBoard*) game->Layers.Find("HexBoard") ) : NULL;
+	const Mech *target = game ? game->TargetMech() : NULL;
+	
+	for( std::vector<MechEquipment>::const_iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
+	{
+		if( eq->Weapon && eq->Fired )
+			firing += eq->Fired;
+		else if( hex_board )
+		{
+			// FIXME: Some Path(s) mess here.
+			std::map<uint8_t,uint8_t>::const_iterator weap = WeaponsToFire.find( eq->Index() );
+			if( (weap != WeaponsToFire.end()) && weap->second )
+			{
+				const Mech *weap_target = target;
+				ShotPath path = hex_board->Paths[0];
+				std::map<uint8_t,uint32_t>::const_iterator target_iter = WeaponTargets.find( weap->first );
+				if( target_iter != WeaponTargets.end() )
+				{
+					weap_target = (const Mech*) Data->GetObject( target_iter->second );
+					if( weap_target )
+						path = hex_board->PathToTarget( weap_target->ID );
+					else
+						weap_target = target;
+				}
+				
+				int needed_roll = WeaponRollNeeded( weap_target, &path, &*eq, weap_target && (weap_target->ID != game->TargetID) );
+				
+				if( TookTurn )
+				{
+					std::map<uint8_t,uint8_t>::const_iterator declared = DeclaredWeapons.find( weap->first );
+					if( (declared == DeclaredWeapons.end()) || ! declared->second )
+						needed_roll = 99;
+				}
+				
+				if( needed_roll <= 12 )
+					firing += weap->second;
+			}
+		}
+	}
+	
+	return firing;
+}
+
+
+bool Mech::SpottingWithoutTAG( void ) const  // This is used in WeaponRollNeeded to add +1 when relevant. [BattleMech Manual p.30]
+{
+	if( TaggedTarget )
+		return false;
 	if( ClientSide() && (Raptor::Game->State < BattleTech::State::WEAPON_ATTACK) )
 		return false;
 	
 	std::map<uint8_t,uint8_t>::const_iterator spotting = WeaponsToFire.find( 0xFF );
-	return (spotting != WeaponsToFire.end()) && spotting->second && ! FiredTAG();
+	return (spotting != WeaponsToFire.end()) && spotting->second;
 }
 
 
@@ -2783,6 +2955,19 @@ uint8_t Mech::PhysicalHitTable( uint8_t attack, const Mech *attacker ) const
 }
 
 
+bool Mech::HasIndirectFireWeapon( void ) const
+{
+	for( size_t i = 0; i < Equipment.size(); i ++ )
+	{
+		const MechEquipment *equip = &(Equipment[ i ]);
+		if( equip->Weapon && equip->Weapon->CanUseArtemisLRM && TotalAmmo(equip->ID) )  // FIXME: Better check for indirect fire weapons?
+			return true;
+	}
+	
+	return false;
+}
+
+
 MechEquipment *Mech::FindAmmo( uint16_t eq_id )
 {
 	if( eq_id && (eq_id < 451) )
@@ -2790,8 +2975,9 @@ MechEquipment *Mech::FindAmmo( uint16_t eq_id )
 	
 	MechEquipment *ammo = NULL;
 	
-	for( std::vector<MechEquipment>::iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
+	for( size_t i = 0; i < Equipment.size(); i ++ )
 	{
+		MechEquipment *equip = &(Equipment[ i ]);
 		if( ! equip->Ammo )
 			continue;
 		if( equip->Damaged )
@@ -2896,29 +3082,35 @@ MechEquipment *Mech::AvailableAMS( uint8_t arc )
 		return NULL;
 	
 	MechEquipment *ams = NULL;
-	for( std::vector<MechEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
+	for( size_t i = 0; i < Equipment.size(); i ++ )
 	{
+		MechEquipment *eq = &(Equipment[ i ]);
 		if( eq->Weapon && eq->Weapon->Defensive && ! eq->Damaged && ! eq->Fired && eq->WeaponArcs.count( arc )
 		&& (strstr( eq->Weapon->Name.c_str(), "AMS" ) || strstr( eq->Weapon->Name.c_str(), "Anti-Missile" )) )
 		{
 			if( eq->Weapon->AmmoPerTon && ! FindAmmo(eq->ID) )
 				continue;
 			if( (! ams) || (eq->Weapon->Heat < ams->Weapon->Heat) )
-				ams = &*eq;
+				ams = eq;
 		}
 	}
 	return ams;
 }
 
 
-bool Mech::FiredTAG( void ) const
+bool Mech::ArmsCanFlip( void ) const
 {
-	for( std::vector<MechEquipment>::const_iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
+	if( Prone || Shutdown || Unconscious || Destroyed() )
+		return false;
+	
+	for( size_t i = 0; i < Equipment.size(); i ++ )
 	{
-		if( eq->Weapon && eq->Weapon->TAG && eq->Fired )
-			return true;
+		if( (Equipment[ i ].ID == BattleTech::Equipment::LOWER_ARM_ACTUATOR)
+		||  (Equipment[ i ].ID == BattleTech::Equipment::HAND_ACTUATOR) )
+			return false;
 	}
-	return false;
+	
+	return true;
 }
 
 
@@ -3002,7 +3194,9 @@ void Mech::BeginPhase( int phase )
 	MoveSpeed = 0;
 	StandAttempts = 0;
 	TookTurn = false;
+	WeaponTargets.clear();
 	DeclaredTarget = 0;
+	DeclaredTargets.clear();
 	DeclaredWeapons.clear();
 	DeclaredMelee.clear();
 	
@@ -3038,20 +3232,22 @@ void Mech::BeginPhase( int phase )
 		// Clear checkbox "Spot for Indirect Fire" each turn.
 		WeaponsToFire[ 0xFF ] = 0;
 	}
+	else if( ClientSide() && WeaponsToFire[ 0xFF ] && ! ReadyAndAbleNoCache( phase ) )
+		WeaponsToFire[ 0xFF ] = 0;  // Prevent disabled Mechs from attempting to spot.
 	
 	if( (phase == BattleTech::State::HEAT) && ! ClientSide() )
 	{
 		BattleTechServer *server = (BattleTechServer*) Raptor::Server;
 		
 		bool any_fired = false;
-		for( std::vector<MechEquipment>::iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
+		for( size_t i = 0; i < Equipment.size(); i ++ )
 		{
-			if( equip->Fired && equip->Weapon )
+			if( Equipment[ i ].Fired && Equipment[ i ].Weapon )
 			{
-				Heat += equip->Fired * equip->Weapon->Heat;
+				Heat += Equipment[ i ].Fired * Equipment[ i ].Weapon->Heat;
 				any_fired = true;
 			}
-			equip->Fired = 0;
+			Equipment[ i ].Fired = 0;
 		}
 		
 		if( OutsideHeat > 15 )
@@ -3269,11 +3465,14 @@ void Mech::BeginPhase( int phase )
 			
 			if( ! any_fired && (Attack <= 1) && ! Shutdown && ! was_shutdown )
 			{
-				for( std::vector<MechEquipment>::iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
+				for( size_t i = 0; i < Equipment.size(); i ++ )
 				{
+					MechEquipment *equip = &(Equipment[ i ]);
 					if( equip->Jammed && ! equip->Damaged && equip->Weapon && (equip->Weapon->RapidFire > 2) )
 					{
 						int8_t unjam_need = GunnerySkill + 3;
+						if( (unjam_need < 3) && server->Data.PropertyAsBool("fail_on_2") )
+							unjam_need = 3;
 						int8_t unjam_roll = Roll::Dice( 2 );
 						if( unjam_roll >= unjam_need )
 						{
@@ -3295,8 +3494,8 @@ void Mech::BeginPhase( int phase )
 	
 	if( (phase == BattleTech::State::HEAT) && ClientSide() )
 	{
-		for( std::vector<MechEquipment>::iterator equip = Equipment.begin(); equip != Equipment.end(); equip ++ )
-			equip->Fired = 0;
+		for( size_t i = 0; i < Equipment.size(); i ++ )
+			Equipment[ i ].Fired = 0;
 	}
 	
 	if( (phase == BattleTech::State::END) || (phase == BattleTech::State::SETUP) )
@@ -3314,6 +3513,7 @@ void Mech::BeginPhase( int phase )
 		Defense = 0;
 		Spotted = 99;
 		Tagged = false;
+		TaggedTarget = 0;
 		
 		if( phase == BattleTech::State::SETUP )
 		{
@@ -3689,6 +3889,21 @@ uint8_t Mech::MovementHeat( uint8_t speed, uint8_t entered ) const
 }
 
 
+void Mech::Select( void )
+{
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+	game->SelectMech( this );
+}
+
+
+void Mech::Deselect( void )
+{
+	BattleTechGame *game = (BattleTechGame*) Raptor::Game;
+	if( ID == game->SelectedID )
+		game->DeselectMech();
+}
+
+
 void Mech::Animate( double duration, uint8_t effect )
 {
 	GetPosition( &FromX, &FromY, &FromFacing );
@@ -3998,18 +4213,23 @@ void Mech::Draw( void )
 		const Mech *selected = game->SelectedMech();
 		HexBoard *hex_board = (HexBoard*) game->Layers.Find("HexBoard");
 		
-		if( relevant_ecm || playing_events )
+		if( relevant_ecm || playing_events || game->Cfg.SettingAsBool("screensaver") )
 			;
-		else if( selected && hex_board && hex_board->Path.size() && (((game->State == BattleTech::State::WEAPON_ATTACK) && ! selected->TookTurn) || (game->State == BattleTech::State::MOVEMENT)) )
+		else if( selected && hex_board && hex_board->Paths.size() && hex_board->Paths[0].size() && (((game->State == BattleTech::State::WEAPON_ATTACK) && ! selected->TookTurn) || (game->State == BattleTech::State::MOVEMENT)) )
 		{
-			// Show ECM ranges that cover the current shot path.
-			for( std::map<uint32_t,uint8_t>::const_iterator ecm = hex_board->Path.ECM.begin(); ecm != hex_board->Path.ECM.end(); ecm ++ )
+			// Show ECM ranges that cover the current shot path(s).
+			for( size_t i = 0; i < hex_board->Paths.size(); i ++ )
 			{
-				if( (ecm->first == ID) && (ecm->second != selected->Team) )
+				for( std::map<uint32_t,uint8_t>::const_iterator ecm = hex_board->Paths[ i ].ECM.begin(); ecm != hex_board->Paths[ i ].ECM.end(); ecm ++ )
 				{
-					relevant_ecm = true;
-					break;
+					if( (ecm->first == ID) && (ecm->second != selected->Team) )
+					{
+						relevant_ecm = true;
+						break;
+					}
 				}
+				if( relevant_ecm )
+					break;
 			}
 		}
 		else

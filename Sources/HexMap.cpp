@@ -68,48 +68,9 @@ HexTouch::~HexTouch()
 }
 
 
-// ---------------------------------------------------------------------------
-
-
 bool HexTouch::operator < ( const HexTouch &other ) const
 {
 	return (HexPtr < other.HexPtr);
-}
-
-
-ShotPath::ShotPath( void ) : std::vector<const Hex*>()
-{
-	Clear();
-}
-
-
-ShotPath::~ShotPath()
-{
-}
-
-
-void ShotPath::Clear( void )
-{
-	clear();
-	ECM.clear();
-	Modifier = 0;
-	Distance = 0;
-	LineOfSight = true;
-	PartialCover = false;
-	LegWeaponsBlocked = false;
-	DamageFromX = 0;
-	DamageFromY = 0;
-}
-
-
-bool ShotPath::ECMvsTeam( uint8_t team ) const
-{
-	for( std::map<uint32_t,uint8_t>::const_iterator ecm = ECM.begin(); ecm != ECM.end(); ecm ++ )
-	{
-		if( ecm->second != team )
-			return true;
-	}
-	return false;
 }
 
 
@@ -184,10 +145,13 @@ void HexMap::Randomize( uint32_t seed )
 	double hill3 = r.Double( 0.40, 0.80 );
 	
 	// Randomize the hexes on the map.
-	for( std::vector< std::vector<Hex> >::iterator col = Hexes.begin(); col != Hexes.end(); col ++ )
+	for( size_t i = 0; i < Hexes.size(); i ++ )
 	{
-		for( std::vector<Hex>::iterator hex = col->begin(); hex != col->end(); hex ++ )
+		std::vector<Hex> *col = &(Hexes[ i ]);
+		for( size_t j = 0; j < col->size(); j ++ )
 		{
+			Hex *hex = &((*col)[ j ]);
+			
 			if( r.Bool(tree1) )
 			{
 				hex->Forest += (r.Bool(tree2) ? 2 : 1);
@@ -294,10 +258,13 @@ void HexMap::ReadFromInitPacket( Packet *packet, int8_t precision )
 	if( (w != prev_w) || (h != prev_h) )
 		SetSize( w, h );
 	
-	for( std::vector< std::vector<Hex> >::iterator col = Hexes.begin(); col != Hexes.end(); col ++ )
+	for( size_t i = 0; i < Hexes.size(); i ++ )
 	{
-		for( std::vector<Hex>::iterator hex = col->begin(); hex != col->end(); hex ++ )
+		std::vector<Hex> *col = &(Hexes[ i ]);
+		for( size_t j = 0; j < col->size(); j ++ )
 		{
+			Hex *hex = &((*col)[ j ]);
+			
 			uint8_t byte = packet->NextUChar();
 			
 			hex->Forest = (byte & 0xC0) >> 6;

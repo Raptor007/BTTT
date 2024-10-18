@@ -57,6 +57,7 @@ void BattleTechGame::SetDefaults( void )
 	Cfg.Settings[ "sv_port" ] = "3050";
 	Cfg.Settings[ "sv_maxfps" ] = "10";
 	Cfg.Settings[ "host_address" ] = "www.raptor007.com:3050";
+	Cfg.Settings[ "saitek_enable" ] = "false";
 	
 	if( Cfg.Settings[ "name" ] == "Name" )
 		Cfg.Settings[ "name" ] = "Cadet";
@@ -65,7 +66,10 @@ void BattleTechGame::SetDefaults( void )
 	Cfg.Settings[ "piloting" ] = "4";
 	Cfg.Settings[ "gunnery"  ] = "3";
 	
-	Cfg.Settings[ "event_speed" ] = "0.5";
+	Cfg.Settings[ "overlay_lines" ] = "10";
+	Cfg.Settings[ "overlay_scroll" ] = "0.2";
+	Cfg.Settings[ "event_speed" ] = "0.7";
+	Cfg.Settings[ "move_speed" ] = "1";
 	Cfg.Settings[ "show_ecm" ] = "true";
 	Cfg.Settings[ "record_sheet_popup" ] = "true";
 	Cfg.Settings[ "map_drag" ] = "false";
@@ -266,8 +270,6 @@ size_t BattleTechGame::LoadVariants( std::string dir )
 		
 		while( struct dirent *dir_entry_p = readdir(dir_p) )
 		{
-			if( ! dir_entry_p->d_name )
-				continue;
 			if( dir_entry_p->d_name[ 0 ] == '.' )
 				continue;
 #ifndef DT_DIR
@@ -328,8 +330,6 @@ void BattleTechGame::Precache( void )
 	{
 		while( struct dirent *dir_entry_p = readdir(dir_p) )
 		{
-			if( ! dir_entry_p->d_name )
-				continue;
 			if( dir_entry_p->d_name[ 0 ] == '.' )
 				continue;
 			
@@ -342,8 +342,6 @@ void BattleTechGame::Precache( void )
 	{
 		while( struct dirent *dir_entry_p = readdir(dir_p) )
 		{
-			if( ! dir_entry_p->d_name )
-				continue;
 			if( dir_entry_p->d_name[ 0 ] == '.' )
 				continue;
 			
@@ -478,11 +476,21 @@ void BattleTechGame::Update( double dt )
 		Events.pop();
 		
 		double duration = e.Duration;
-		double event_speed = std::max<double>( 0.1, Cfg.SettingAsDouble("event_speed",1.) );
-		if( e.Text.length() || (event_speed > 1.) )
-			duration /= event_speed;
+		double delay = 0.;
+		if( duration )
+		{
+			double event_speed = std::max<double>( 0.1, Cfg.SettingAsDouble("event_speed",1.,1.) );
+			if( (e.Effect >= BattleTech::Effect::FIRST_MOVEMENT)
+			&&  (e.Effect <= BattleTech::Effect::LAST_MOVEMENT) )
+			{
+				duration /= std::max<double>( 0.1, Cfg.SettingAsDouble("move_speed",1.,1.) );
+				delay = 0.03 + duration * 0.06;
+			}
+			else if( e.Text.length() || (event_speed > 1.) )
+				duration /= event_speed;
+		}
 		
-		EventClock.Reset( duration );
+		EventClock.Reset( duration + delay );
 		PlayEvent( &e, duration );
 		
 		// Keep screensaver zoomed to the action.
@@ -544,7 +552,7 @@ void BattleTechGame::PlayEvent( const Event *e )
 void BattleTechGame::PlayEvent( const Event *e, double duration )
 {
 	if( e->Text.length() )
-		Console.Print( e->Text );
+		MessageReceived( e->Text );
 	if( e->Sound.length() )
 		Snd.Play( Res.GetSound(e->Sound) );
 	
@@ -608,14 +616,12 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 		&&  (e->Effect <= BattleTech::Effect::LAST_MOVEMENT) )
 		{
 			if( (e->Effect == BattleTech::Effect::STEP) || (e->Effect == BattleTech::Effect::TURN) || (e->Effect == BattleTech::Effect::FALL) )
-			{
-				double event_speed = std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.) );
-				duration = std::min<double>( 0.3, 0.5 / event_speed );
-			}
+				duration = std::max<double>( 0.2, 0.6 - mech->WalkDist() * 0.05 ) / std::max<double>( 0.1, Cfg.SettingAsDouble("move_speed",1.,1.) );
 			else if( (State == BattleTech::State::SETUP) && ((e->Effect == BattleTech::Effect::JUMP) || (e->Effect == BattleTech::Effect::STAND) || (e->Effect == BattleTech::Effect::FALL)) )
-				duration = 0.2;
+				duration = 0.2 / std::max<double>( 0.1, Cfg.SettingAsDouble("move_speed",1.,1.) );
 			else if( e->Effect == BattleTech::Effect::TORSO_TWIST )
-				duration = 0.2;
+				duration = 0.2 / std::max<double>( 0.1, Cfg.SettingAsDouble("move_speed",1.,1.) );
+			
 			mech->Animate( duration, e->Effect );
 			mech->X = e->X;
 			mech->Y = e->Y;
@@ -672,7 +678,7 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				double dist = vec.Length();
 				double speed = Rand::Double(0.5,1.);
 				double size = Rand::Double(0.4,0.7);
-				double delay = i * 0.1;
+				double delay = i * 0.2;
 				Data.Effects.push_back( Effect( Res.GetAnimation("smoke.ani"), size, NULL, 0, &pos, &vec, 30., Rand::Double(0.9,1.1), std::max<double>( 0.1, dist - size*0.2 ) / speed ) );
 				Data.Effects.back().Rotation = Rand::Double(0.,360.);
 				Data.Effects.back().Lifetime.CountUpToSecs = delay;
@@ -928,7 +934,7 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				spacing = 0.03;
 				size *= 0.75;
 			}
-			speed *= std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.) );
+			speed *= std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.,1.) );
 			vec.ScaleTo( speed );
 			for( uint8_t i = 0; i < count; i ++ )
 			{
@@ -948,11 +954,16 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 		{
 			HexMap *map = Map();
 			const Mech *target = ((e->X != mech->X) || (e->Y != mech->Y)) ? map->MechAt_const( e->X, e->Y ) : NULL;
-			mech->DeclaredTarget = target ? target->ID : 0;
-			if( mech->DeclaredTarget )
+			uint32_t declared_target = target ? target->ID : 0;
+			if( declared_target )
 			{
-				if( State == BattleTech::State::WEAPON_ATTACK )
+				if( ! mech->DeclaredTarget )
+					mech->DeclaredTarget = declared_target;
+				if( (State == BattleTech::State::WEAPON_ATTACK) || (State == BattleTech::State::TAG) )
+				{
 					mech->DeclaredWeapons[ e->Misc ] = 1;  // FIXME: Fire count!
+					mech->DeclaredTargets[ e->Misc ] = declared_target;
+				}
 				else if( State == BattleTech::State::PHYSICAL_ATTACK )
 					mech->DeclaredMelee.insert( e->Misc );
 				Pos3D pos1 = map->Center( mech->X, mech->Y );
@@ -962,7 +973,7 @@ void BattleTechGame::PlayEvent( const Event *e, double duration )
 				double dist = vec.Length();
 				vec.ScaleTo( 1. );
 				center.MoveAlong( &vec, -0.25 );
-				double event_speed = std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.) );
+				double event_speed = std::max<double>( 1., Cfg.SettingAsDouble("event_speed",1.,1.) );
 				duration = 0.6 / event_speed;
 				Vec3D motion = vec * 0.5 / duration;
 				double angle = Math2D::Angle( vec.X, vec.Y * -1. );
@@ -1343,23 +1354,21 @@ bool BattleTechGame::HandleCommand( std::string cmd, std::vector<std::string> *p
 }
 
 
+void BattleTechGame::MessageReceived( std::string text, uint32_t type )
+{
+	if( type == TextConsole::MSG_CHAT )
+		Snd.Play( Res.GetSound("i_chat.wav") );
+	
+	RaptorGame::MessageReceived( text, type );
+}
+
+
 bool BattleTechGame::ProcessPacket( Packet *packet )
 {
 	packet->Rewind();
 	PacketType type = packet->Type();
 	
-	if( type == Raptor::Packet::MESSAGE )
-	{
-		packet->NextString();
-		if( packet->Remaining() )
-		{
-			uint32_t msg_type = packet->NextUInt();
-			if( msg_type == TextConsole::MSG_CHAT )
-				Snd.Play( Res.GetSound("i_chat.wav") );
-		}
-		return RaptorGame::ProcessPacket( packet );
-	}
-	else if( type == BattleTech::Packet::EVENTS )
+	if( type == BattleTech::Packet::EVENTS )
 	{
 		uint16_t count = packet->NextUShort();
 		for( uint16_t i = 0; i < count; i ++ )
@@ -1385,9 +1394,15 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 		{
 			tag_eq &= 0x7F;
 			if( tag_eq && (tag_eq < from->Equipment.size()) )
+			{
 				from->Equipment[ tag_eq ].Fired ++;
+				from->TaggedTarget = mech ? mech->ID : 0;
+				from->DeclaredTargets[ tag_eq ] = mech->ID;
+			}
 			else
 				from->WeaponsToFire[ 0xFF ] = 1;  // Spotted for indirect fire without TAG.
+			if( mech )
+				from->DeclaredTargets[ 0xFF ] = mech->ID;
 		}
 	}
 	else if( type == BattleTech::Packet::TEAM_TURN )
@@ -1442,14 +1457,14 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 			}
 			
 			// If your team's turn begins without a ready-and-able Mech selected, select the first that you own.
-			if( !( SelectedID && selected && selected->ReadyAndAble() ) )
+			if( !( SelectedID && selected && selected->ReadyAndAbleNoCache() ) )
 			{
 				for( std::map<uint32_t,GameObject*>::const_iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
 				{
 					if( obj_iter->second->Type() == BattleTech::Object::MECH )
 					{
 						const Mech *mech = (const Mech*) obj_iter->second;
-						if( (mech->Team == TeamTurn) && mech->ReadyAndAble() && ((mech->PlayerID == PlayerID) || (Data.Players.size() == 1)) )
+						if( (mech->Team == TeamTurn) && mech->ReadyAndAbleNoCache() && ((mech->PlayerID == PlayerID) || (Data.Players.size() == 1)) )
 						{
 							SelectedID = mech->ID;
 							selected = mech;
@@ -1483,7 +1498,10 @@ bool BattleTechGame::ProcessPacket( Packet *packet )
 			
 			// Clear aim if the selected Mech was changed.
 			if( SelectedID != prev_selected )
+			{
 				TargetID = 0;
+				TargetIDs.clear();
+			}
 			HexBoard *hex_board = (HexBoard*) Layers.Find("HexBoard");
 			if( hex_board )
 				hex_board->UpdateAim();
@@ -1562,6 +1580,7 @@ void BattleTechGame::ChangeState( int state )
 		// Back to Setup.
 		Layers.RemoveAll();
 		TargetID = 0;
+		TargetIDs.clear();
 		while( Events.size() )
 			Events.pop();
 		EventClock.Reset( 0. );
@@ -1598,6 +1617,7 @@ void BattleTechGame::ChangeState( int state )
 		Mouse.ShowCursor = false;
 		Data.Properties[ "ai_team" ] = Raptor::Server->Data.Properties[ "ai_team" ] = "1,2,3,4,5";
 		Cfg.Settings[ "event_speed" ] = "2";
+		Cfg.Settings[ "walk_speed" ] = "1.5";
 		int mechs_per_team = Rand::Int( 1, 31 );
 		
 		std::map< std::string, Variant > variants;
@@ -1687,13 +1707,13 @@ bool BattleTechGame::PlayingEvents( void ) const
 }
 
 
-bool BattleTechGame::Hotseat( void ) const
+bool BattleTechGame::Hotseat( void )
 {
 	return Data.PropertyAsBool("hotseat");
 }
 
 
-bool BattleTechGame::FF( void ) const
+bool BattleTechGame::FF( void )
 {
 	if( Data.PropertyAsBool("ff") )
 		return true;
@@ -1725,22 +1745,6 @@ bool BattleTechGame::ReadyToBegin( void )
 }
 
 
-Mech *BattleTechGame::MyMech( void )
-{
-	uint8_t my_team = MyTeam();
-	for( std::map<uint32_t,GameObject*>::iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
-	{
-		if( obj_iter->second->Type() == BattleTech::Object::MECH )
-		{
-			Mech *mech = (Mech*) obj_iter->second;
-			if( (mech->Team == my_team) && ! mech->Destroyed() && ((mech->PlayerID == PlayerID) || (Data.Players.size() == 1)) )
-				return mech;
-		}
-	}
-	return NULL;
-}
-
-
 uint8_t BattleTechGame::TeamsAlive( void ) const
 {
 	std::set<uint8_t> teams_alive;
@@ -1764,13 +1768,13 @@ uint8_t BattleTechGame::MyTeam( void )
 }
 
 
-std::string BattleTechGame::TeamName( uint8_t team_num ) const
+std::string BattleTechGame::TeamName( uint8_t team_num )
 {
 	return Data.PropertyAsString( std::string("team") + Num::ToString((int)team_num), (std::string("Team ") + Num::ToString((int)team_num)).c_str() );
 }
 
 
-bool BattleTechGame::BotControlsTeam( uint8_t team_num ) const
+bool BattleTechGame::BotControlsTeam( uint8_t team_num )
 {
 	if( ! team_num )
 		return false;
@@ -1794,6 +1798,22 @@ bool BattleTechGame::BotControlsTeam( uint8_t team_num ) const
 }
 
 
+Mech *BattleTechGame::MyMech( void )
+{
+	uint8_t my_team = MyTeam();
+	for( std::map<uint32_t,GameObject*>::iterator obj_iter = Data.GameObjects.begin(); obj_iter != Data.GameObjects.end(); obj_iter ++ )
+	{
+		if( obj_iter->second->Type() == BattleTech::Object::MECH )
+		{
+			Mech *mech = (Mech*) obj_iter->second;
+			if( (mech->Team == my_team) && ! mech->Destroyed() && ((mech->PlayerID == PlayerID) || (Data.Players.size() == 1)) )
+				return mech;
+		}
+	}
+	return NULL;
+}
+
+
 Mech *BattleTechGame::GetMech( uint32_t mech_id )
 {
 	GameObject *obj = Data.GetObject( mech_id );
@@ -1812,6 +1832,96 @@ Mech *BattleTechGame::SelectedMech( void )
 Mech *BattleTechGame::TargetMech( void )
 {
 	return GetMech( TargetID );
+}
+
+
+std::vector<Mech*> BattleTechGame::TargetMechs( void )
+{
+	std::vector<Mech*> mechs;
+	
+	for( std::vector<uint32_t>::const_iterator id = TargetIDs.begin(); id != TargetIDs.end(); id ++ )
+		mechs.push_back( GetMech( *id ) );
+	
+	return mechs;
+}
+
+
+int BattleTechGame::TargetNum( uint32_t target_id ) const
+{
+	for( int i = 0; i < (int) TargetIDs.size(); i ++ )
+	{
+		if( target_id == TargetIDs[ i ] )
+			return (i + 1);
+	}
+	return 0;
+}
+
+
+void BattleTechGame::SelectMech( Mech *mech )
+{
+	if( mech && (mech->ID == SelectedID) )
+		return;
+	
+	DeselectMech();
+	
+	if( ! mech )
+		return;
+	
+	SelectedID = mech->ID;
+	// FIXME: Path(s)?  Other stuff?
+}
+
+
+void BattleTechGame::DeselectMech( void )
+{
+	Mech *prev_selected = SelectedMech();
+	if( prev_selected )
+	{
+		prev_selected->Steps.clear();
+		prev_selected->WeaponTargets.clear();
+		
+		if( prev_selected->ArmsFlipped && (State == BattleTech::State::WEAPON_ATTACK) && ! prev_selected->DeclaredTarget )
+			prev_selected->ArmsFlipped = false;
+	}
+	
+	SelectedID = 0;
+	TargetID = 0;
+	TargetIDs.clear();
+	// FIXME: Path(s)?  Other stuff?  HexBoard.ClearPath?
+}
+
+
+
+void BattleTechGame::SetPrimaryTarget( uint32_t target_id )
+{
+	if( target_id )
+	{
+		TargetID = target_id;
+		std::vector<uint32_t>::iterator target_iter = std::find( TargetIDs.begin(), TargetIDs.end(), target_id );
+		if( target_iter != TargetIDs.end() )
+			TargetIDs.erase( target_iter );
+		TargetIDs.insert( TargetIDs.begin(), target_id );
+	}
+	
+	// Primary target must be in forward arc if any target is there. [BattleMech Manual p.109]
+	const Mech *selected = SelectedMech();
+	if( ! selected )
+		return;
+	std::vector<uint32_t> front_targets, other_targets;
+	for( std::vector<uint32_t>::const_iterator id = TargetIDs.begin(); id != TargetIDs.end(); id ++ )
+	{
+		const Mech *target = GetMech( *id );
+		if( ! target )
+			continue;
+		if( selected->FiringArc( target->X, target->Y ) == BattleTech::Arc::FRONT )
+			front_targets.push_back( *id );
+		else
+			other_targets.push_back( *id );
+	}
+	TargetIDs = front_targets;
+	TargetIDs.insert( TargetIDs.end(), other_targets.begin(), other_targets.end() );
+	if( TargetIDs.size() )
+		TargetID = TargetIDs[ 0 ];
 }
 
 

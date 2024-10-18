@@ -16,8 +16,6 @@ class GameMenuSvDropDown;
 
 #include "PlatformSpecific.h"
 
-#include <SDL/SDL.h>
-
 #include "Window.h"
 #include "Font.h"
 #include "LabelledButton.h"
@@ -87,7 +85,7 @@ class GameMenuCommandButton : public LabelledButton
 public:
 	std::string Command;
 	
-	GameMenuCommandButton( SDL_Rect *rect, Font *button_font, std::string command, std::string label );
+	GameMenuCommandButton( SDL_Rect *rect, Font *button_font, uint8_t font_align, std::string command, std::string label );
 	virtual ~GameMenuCommandButton();
 	void Clicked( Uint8 button = SDL_BUTTON_LEFT );
 };

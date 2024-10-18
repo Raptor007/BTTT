@@ -41,7 +41,7 @@ public:
 	void TookTurn( Mech *mech = NULL );
 	double SendEvents( void );
 	
-	std::string TeamName( uint8_t team_num ) const;
+	std::string TeamName( uint8_t team_num );
 	HexMap *Map( void );
-	bool FF( void ) const;
+	bool FF( void );
 };

@@ -122,7 +122,7 @@ void RecordSheet::AutoPosition( void )
 		int left = (px - hex) - Rect.w;
 		int up   = (py - hex) - Rect.h;
 		int right = game->Gfx.W - (px + hex) - Rect.w;
-		int down  = game->Gfx.H - (py + hex) - Rect.h;
+		int down  = game->Gfx.H - (py + hex) - Rect.h - 24;
 		
 		// FIXME: Prefer not to cover attacker!
 		
@@ -233,10 +233,12 @@ void RecordSheet::Draw( void )
 
 void RecordSheet::Close( void )
 {
+	/*
 	// Closing a pop-up record sheet disables them.
+	// NOTE: Disabled because annoying.  Press F10 and click the checkbox if you want to disable popups.
 	if( AutoHide )
 		Raptor::Game->Cfg.Settings[ "record_sheet_popup" ] = "false";
-	
+	*/
 	Remove();
 }
 

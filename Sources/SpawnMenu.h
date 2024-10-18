@@ -11,8 +11,6 @@ class SpawnMenuCloseButton;
 
 #include "PlatformSpecific.h"
 
-#include <SDL/SDL.h>
-
 #include "Window.h"
 #include "Font.h"
 #include "LabelledButton.h"

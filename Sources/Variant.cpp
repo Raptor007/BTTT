@@ -253,11 +253,12 @@ bool Variant::Load( const char *filename )
 				VariantEquipment *equipment = NULL;
 				bool rear = (crit_id < 451) && (ptr[ 2 ] & 0x01);
 				
-				for( std::vector<VariantEquipment>::iterator eq = Equipment.begin(); eq != Equipment.end(); eq ++ )
+				for( size_t k = 0; k < Equipment.size(); k ++ )
 				{
+					VariantEquipment *eq = &(Equipment[ k ]);
 					if( (eq->ID == crit_id) && (eq->CritLocs.size() < slots) && (eq->Rear == rear) )
 					{
-						equipment = &*eq;
+						equipment = eq;
 						break;
 					}
 				}
